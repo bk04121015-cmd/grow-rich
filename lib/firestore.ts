@@ -29,6 +29,19 @@ export async function removeSetting(uid: string, name: string, id: string) { if 
 export const money = (n: number) => `${Math.round(n).toLocaleString('ko-KR')}원`
 export const monthKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 export const parseMoney = (s: string) => Number(s.replaceAll(',', '').replace(/[^0-9]/g, '')) || 0
+
+export function parseTransactionText(text: string): Omit<Transaction, 'id'> {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  const amountMatch = normalized.match(/(?:금액|승인금액|출금|입금|결제)?\s*[:：]?\s*([0-9][0-9,]*)\s*원?/) || normalized.match(/([0-9][0-9,]*)\s*원/)
+  const amount = amountMatch ? parseMoney(amountMatch[1]) : 0
+  const income = /입금|급여|월급|환급|송금받음|입금완료/.test(normalized)
+  const category = /식당|카페|커피|스타벅스|배달|치킨|외식/.test(normalized) ? categories[0] : /편의점|마트|온라인몰|생필품/.test(normalized) ? categories[1] : /학원|강의|서점|영화|문화/.test(normalized) ? categories[2] : /택시|버스|지하철|주유|교통/.test(normalized) ? categories[3] : categories[4]
+  const type: TransactionType = income ? 'income' : 'variable_expense'
+  const dateMatch = normalized.match(/(20\d{2})[./-](\d{1,2})[./-](\d{1,2})/)
+  const date = dateMatch ? `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}` : new Date().toISOString().slice(0, 10)
+  const cleanedName = normalized.replace(/20\d{2}[./-]\d{1,2}[./-]\d{1,2}/, '').replace(/[0-9][0-9,]*\s*원/g, '').replace(/입금|출금|승인|결제|이체|금액|완료/g, '').trim()
+  return { type, category: income ? '수입' : category, itemName: cleanedName || (income ? '입금' : '새 소비'), amount, date, isRecurring: false, memo: text }
+}
 export const demoData: MonthlyData = { expectedIncome: 3_500_000, budgets: [
   { id: 'f1', section: 'fixed', itemName: '월세', amount: 850000, transferDay: 25 }, { id: 'f2', section: 'fixed', itemName: '통신비', amount: 65000, transferDay: 15 },
   { id: 'v1', section: 'variable', category: categories[0], amount: 450000, actualAmount: 318000 }, { id: 'v2', section: 'variable', category: categories[1], amount: 180000, actualAmount: 94000 }, { id: 'v3', section: 'variable', category: categories[2], amount: 250000, actualAmount: 186000 }, { id: 'v4', section: 'variable', category: categories[3], amount: 180000, actualAmount: 72000 }, { id: 'v5', section: 'variable', category: categories[4], amount: 150000, actualAmount: 115000 },
