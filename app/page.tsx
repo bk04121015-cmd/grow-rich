@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, BarChart3, CalendarDays, ChevronLeft, ChevronRight, CreditCard, Home, LogOut, Menu, Plus, Settings, Target, Trash2, Wallet, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, CalendarDays, ChevronLeft, ChevronRight, CreditCard, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, Wallet, X } from 'lucide-react'
 import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import { auth, isFirebaseConfigured } from '@/lib/firebase'
-import { categories as defaultCategories, demoData, money, monthKey, parseMoney, type Budget, type MonthlyData, type Transaction, type TransactionType, parseTransactionText } from '@/lib/firestore'
+import { categories as defaultCategories, demoAccounts, demoData, money, monthKey, parseMoney, type Account, type AccountItem, type Budget, type MonthlyData, type Transaction, type TransactionType, parseTransactionText } from '@/lib/firestore'
 
-type Page = 'dashboard' | 'budget' | 'transactions' | 'annual' | 'settings'
+type Page = 'dashboard' | 'budget' | 'transactions' | 'accounts' | 'annual' | 'settings'
 
 const typeLabel: Record<TransactionType, string> = {
   income: '수입',
@@ -150,10 +150,14 @@ export default function Page() {
   const [page, setPage] = useState<Page>('dashboard')
   const [month, setMonth] = useState(monthKey())
   const [data, setData] = useState<MonthlyData>(demoData)
+  const [accounts, setAccounts] = useState<Account[]>(demoAccounts)
   const [cats, setCats] = useState(defaultCategories)
   const [modal, setModal] = useState(false)
   const [modalInitialDate, setModalInitialDate] = useState<string | undefined>(undefined)
   const [editing, setEditing] = useState<Transaction | null>(null)
+  const [accountModal, setAccountModal] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null)
+  const [itemModalAccount, setItemModalAccount] = useState<Account | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
 
   useEffect(() => {
@@ -161,13 +165,21 @@ export default function Page() {
   }, [])
 
   useEffect(() => {
-    const saved = localStorage.getItem('sobinote-data') || localStorage.getItem('salimnote-data')
-    if (saved) setData(JSON.parse(saved))
+    const savedData = localStorage.getItem('sobinote-data') || localStorage.getItem('salimnote-data')
+    if (savedData) setData(JSON.parse(savedData))
+
+    const savedAccounts = localStorage.getItem('sobinote-accounts')
+    if (savedAccounts) setAccounts(JSON.parse(savedAccounts))
   }, [])
 
   const persist = (next: MonthlyData) => {
     setData(next)
     localStorage.setItem('sobinote-data', JSON.stringify(next))
+  }
+
+  const persistAccounts = (next: Account[]) => {
+    setAccounts(next)
+    localStorage.setItem('sobinote-accounts', JSON.stringify(next))
   }
 
   const totals = useMemo(() => {
@@ -199,6 +211,7 @@ export default function Page() {
     { id: 'dashboard', label: '대시보드', icon: Home },
     { id: 'budget', label: '이번 달 예산', icon: Target },
     { id: 'transactions', label: '거래 기록', icon: CalendarDays },
+    { id: 'accounts', label: '계좌 관리', icon: Landmark },
     { id: 'annual', label: '연간 결산', icon: BarChart3 },
     { id: 'settings', label: '설정', icon: Settings }
   ] as const
@@ -219,6 +232,43 @@ export default function Page() {
     setModal(false)
     setEditing(null)
     setModalInitialDate(undefined)
+  }
+
+  const saveAccount = (acc: Omit<Account, 'id'>) => {
+    if (editingAccount) {
+      persistAccounts(accounts.map(a => (a.id === editingAccount.id ? { ...acc, id: editingAccount.id } : a)))
+    } else {
+      persistAccounts([{ ...acc, id: uid() }, ...accounts])
+    }
+    setAccountModal(false)
+    setEditingAccount(null)
+  }
+
+  const deleteAccount = (id: string) => {
+    persistAccounts(accounts.filter(a => a.id !== id))
+  }
+
+  const addAccountItem = (accountId: string, item: Omit<AccountItem, 'id'>) => {
+    persistAccounts(
+      accounts.map(a => {
+        if (a.id === accountId) {
+          return { ...a, items: [...a.items, { ...item, id: uid() }] }
+        }
+        return a
+      })
+    )
+    setItemModalAccount(null)
+  }
+
+  const deleteAccountItem = (accountId: string, itemId: string) => {
+    persistAccounts(
+      accounts.map(a => {
+        if (a.id === accountId) {
+          return { ...a, items: a.items.filter(i => i.id !== itemId) }
+        }
+        return a
+      })
+    )
   }
 
   return (
@@ -280,6 +330,16 @@ export default function Page() {
               onEdit={t => { setEditing(t); setModal(true) }}
             />
           )}
+          {page === 'accounts' && (
+            <AccountsView
+              accounts={accounts}
+              onAddAccount={() => { setEditingAccount(null); setAccountModal(true) }}
+              onEditAccount={acc => { setEditingAccount(acc); setAccountModal(true) }}
+              onDeleteAccount={deleteAccount}
+              onAddItem={acc => setItemModalAccount(acc)}
+              onDeleteItem={deleteAccountItem}
+            />
+          )}
           {page === 'annual' && <Annual data={data} />}
           {page === 'settings' && <SettingsView cats={cats} setCats={setCats} />}
         </div>
@@ -292,6 +352,22 @@ export default function Page() {
           cats={cats}
           onClose={() => { setModal(false); setEditing(null); setModalInitialDate(undefined) }}
           onSave={addTransaction}
+        />
+      )}
+
+      {accountModal && (
+        <AccountModal
+          initial={editingAccount}
+          onClose={() => { setAccountModal(false); setEditingAccount(null) }}
+          onSave={saveAccount}
+        />
+      )}
+
+      {itemModalAccount && (
+        <AccountItemModal
+          account={itemModalAccount}
+          onClose={() => setItemModalAccount(null)}
+          onSave={item => addAccountItem(itemModalAccount.id, item)}
         />
       )}
     </div>
@@ -740,6 +816,246 @@ function SpendingCalendar({ data, month, onAdd, onEdit }: { data: MonthlyData; m
         </div>
       )}
     </section>
+  )
+}
+
+function AccountsView({
+  accounts,
+  onAddAccount,
+  onEditAccount,
+  onDeleteAccount,
+  onAddItem,
+  onDeleteItem
+}: {
+  accounts: Account[]
+  onAddAccount: () => void
+  onEditAccount: (acc: Account) => void
+  onDeleteAccount: (id: string) => void
+  onAddItem: (acc: Account) => void
+  onDeleteItem: (accountId: string, itemId: string) => void
+}) {
+  const totalBalance = accounts.reduce((a, b) => a + b.balance, 0)
+  const totalItemsCount = accounts.reduce((a, b) => a + b.items.length, 0)
+
+  return (
+    <>
+      <div className="hero-row">
+        <div>
+          <p className="eyebrow">MY ACCOUNTS</p>
+          <h2>계좌 및 용도 관리</h2>
+          <p className="muted">나의 모든 은행 계좌와 용도를 한눈에 체계적으로 관리해보세요.</p>
+        </div>
+        <button className="primary-btn" onClick={onAddAccount}>
+          <Plus /> 계좌 추가
+        </button>
+      </div>
+
+      <section className="accounts-hero">
+        <div>
+          <p className="eyebrow">TOTAL BALANCE</p>
+          <h3>등록된 계좌 총 자산</h3>
+          <strong>{money(totalBalance)}</strong>
+          <p>총 {accounts.length}개의 계좌 · {totalItemsCount}개의 세부 용도/자동이체 등록</p>
+        </div>
+        <div style={{ background: 'rgba(255,255,255,0.1)', padding: '1rem', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
+          <Landmark style={{ width: '2.5rem', height: '2.5rem', opacity: 0.9 }} />
+        </div>
+      </section>
+
+      <div className="accounts-grid">
+        {accounts.map(acc => (
+          <div key={acc.id} className="account-card">
+            <div className="account-card-header">
+              <div>
+                <span className="bank-tag">{acc.bankName}</span>
+                <h3>{acc.accountName}</h3>
+                {acc.accountNumber && <p className="account-number">{acc.accountNumber}</p>}
+              </div>
+              <div style={{ display: 'flex', gap: '0.2rem' }}>
+                <button className="text-btn" style={{ fontSize: '0.78rem', padding: '0.2rem 0.4rem' }} onClick={() => onEditAccount(acc)}>
+                  수정
+                </button>
+                <button className="text-btn" style={{ fontSize: '0.78rem', color: 'var(--expense)', padding: '0.2rem 0.4rem' }} onClick={() => onDeleteAccount(acc.id)}>
+                  삭제
+                </button>
+              </div>
+            </div>
+
+            <div className="account-balance-box">
+              <span>현재 잔액</span>
+              <strong>{money(acc.balance)}</strong>
+            </div>
+
+            <div className="purpose-box">
+              <small>계좌 용도</small>
+              <p>{acc.purpose}</p>
+            </div>
+
+            <div className="account-items-section">
+              <div className="account-items-head">
+                <span>연결된 용도 및 자동이체 ({acc.items.length})</span>
+                <button className="small-btn" onClick={() => onAddItem(acc)}>
+                  <Plus /> 항목 추가
+                </button>
+              </div>
+
+              {acc.items.length > 0 ? (
+                <div className="account-items-list">
+                  {acc.items.map(item => (
+                    <div key={item.id} className="account-item-row">
+                      <div className="account-item-info">
+                        <b>{item.name}</b>
+                        {item.memo && <small>{item.memo}</small>}
+                      </div>
+                      <div className="account-item-action">
+                        {item.amount && item.amount > 0 && <strong>{money(item.amount)}</strong>}
+                        <button
+                          style={{ border: 0, background: 'none', color: '#c7c7cc', cursor: 'pointer', padding: '2px' }}
+                          onClick={() => onDeleteItem(acc.id, item.id)}
+                          aria-label="항목 삭제"
+                        >
+                          <X style={{ width: '0.9rem', height: '0.9rem' }} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted" style={{ fontSize: '0.78rem', textAlign: 'center', padding: '0.8rem 0' }}>
+                  아직 연결된 세부 용도나 자동이체가 없습니다.
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function AccountModal({
+  initial,
+  onClose,
+  onSave
+}: {
+  initial: Account | null
+  onClose: () => void
+  onSave: (acc: Omit<Account, 'id'>) => void
+}) {
+  const [bankName, setBankName] = useState(initial?.bankName || '카카오뱅크')
+  const [accountName, setAccountName] = useState(initial?.accountName || '')
+  const [accountNumber, setAccountNumber] = useState(initial?.accountNumber || '')
+  const [purpose, setPurpose] = useState(initial?.purpose || '')
+  const [balance, setBalance] = useState(initial?.balance || 0)
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!accountName || !purpose) return
+    onSave({
+      bankName,
+      accountName,
+      accountNumber,
+      purpose,
+      balance,
+      items: initial?.items || []
+    })
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal">
+        <div className="panel-head">
+          <h3>{initial ? '계좌 수정' : '새 계좌 추가'}</h3>
+          <button onClick={onClose}><X /></button>
+        </div>
+        <form onSubmit={submit} className="form-stack" style={{ marginTop: '1rem' }}>
+          <label>은행 / 금융기관
+            <select value={bankName} onChange={e => setBankName(e.target.value)}>
+              <option value="카카오뱅크">카카오뱅크</option>
+              <option value="토스뱅크">토스뱅크</option>
+              <option value="신한은행">신한은행</option>
+              <option value="KB국민은행">KB국민은행</option>
+              <option value="우리은행">우리은행</option>
+              <option value="하나은행">하나은행</option>
+              <option value="NH농협은행">NH농협은행</option>
+              <option value="기업은행">기업은행</option>
+              <option value="기타 금융사">기타 금융사</option>
+            </select>
+          </label>
+
+          <label>계좌 이름 (별칭)
+            <input required placeholder="예: 주거래 · 생활비 통장" value={accountName} onChange={e => setAccountName(e.target.value)} />
+          </label>
+
+          <label>계좌 용도 및 성격
+            <input required placeholder="예: 월세/공과금 자동이체 및 데일리 변동지출용" value={purpose} onChange={e => setPurpose(e.target.value)} />
+          </label>
+
+          <label>계좌번호 (선택)
+            <input placeholder="예: 3333-01-1234567" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
+          </label>
+
+          <label>현재 잔액
+            <input value={balance.toLocaleString()} onChange={e => setBalance(parseMoney(e.target.value))} />
+          </label>
+
+          <button className="primary-btn full" type="submit">
+            {initial ? '수정 완료' : '계좌 등록하기'}
+          </button>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function AccountItemModal({
+  account,
+  onClose,
+  onSave
+}: {
+  account: Account
+  onClose: () => void
+  onSave: (item: Omit<AccountItem, 'id'>) => void
+}) {
+  const [name, setName] = useState('')
+  const [amount, setAmount] = useState<number>(0)
+  const [memo, setMemo] = useState('')
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name) return
+    onSave({ name, amount: amount || undefined, memo })
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal">
+        <div className="panel-head">
+          <div>
+            <h3>세부 용도 및 항목 추가</h3>
+            <p className="muted" style={{ fontSize: '0.78rem' }}>[{account.bankName}] {account.accountName} 계좌에 연결할 항목</p>
+          </div>
+          <button onClick={onClose}><X /></button>
+        </div>
+        <form onSubmit={submit} className="form-stack" style={{ marginTop: '1rem' }}>
+          <label>항목명 / 용도
+            <input required placeholder="예: 월세 자동이체, 넷플릭스 구독료, 비상금 저축" value={name} onChange={e => setName(e.target.value)} />
+          </label>
+
+          <label>예정 금액 (선택)
+            <input placeholder="0" value={amount ? amount.toLocaleString() : ''} onChange={e => setAmount(parseMoney(e.target.value))} />
+          </label>
+
+          <label>설명 / 출금 일정 메모 (선택)
+            <input placeholder="예: 매월 25일 자동출금, 체크카드 전용" value={memo} onChange={e => setMemo(e.target.value)} />
+          </label>
+
+          <button className="primary-btn full" type="submit">
+            항목 추가하기
+          </button>
+        </form>
+      </section>
+    </div>
   )
 }
 
