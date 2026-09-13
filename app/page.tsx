@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, CreditCard, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, Wallet, X } from 'lucide-react'
 import {
   categories as defaultCategories,
+  defaultCategoryGroups,
+  type CategoryGroups,
   money,
   monthKey,
   parseMoney,
@@ -122,7 +124,10 @@ function AuthScreen({ onLogin }: { onLogin: (phone: string) => void }) {
     <main className="auth-shell">
       <div className="auth-mark">
         <div className="brand-icon"><Wallet /></div>
-        <span>사명가의 소비노트</span>
+        <div className="brand-text">
+          <span className="brand-sub">사명가의</span>
+          <span className="brand-main">소비노트</span>
+        </div>
       </div>
       <section className="auth-card">
         <p className="eyebrow">나의 돈을 돌보는 가장 쉬운 방법</p>
@@ -233,7 +238,8 @@ export default function Page() {
   const [month, setMonth] = useState(monthKey())
   const [data, setData] = useState<MonthlyData>({ transactions: [], budgets: [], expectedIncome: 0 })
   const [accounts, setAccounts] = useState<Account[]>([])
-  const [cats, setCats] = useState(defaultCategories)
+  const [catGroups, setCatGroups] = useState<CategoryGroups>(defaultCategoryGroups)
+  const cats = catGroups.expense
   const [modal, setModal] = useState(false)
   const [modalInitialDate, setModalInitialDate] = useState<string | undefined>(undefined)
   const [modalDefaultType, setModalDefaultType] = useState<TransactionType | undefined>(undefined)
@@ -244,6 +250,17 @@ export default function Page() {
   const [itemModalAccount, setItemModalAccount] = useState<Account | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
 
+  const persistCatGroups = (next: CategoryGroups) => {
+    setCatGroups(next)
+    if (currentUser) {
+      localStorage.setItem(`sobinote-cat-groups-${currentUser}`, JSON.stringify(next))
+    }
+  }
+
+  const setCats = (nextExpense: string[]) => {
+    persistCatGroups({ ...catGroups, expense: nextExpense })
+  }
+
   const loadUserData = async (phone: string) => {
     // 1. First load from local storage for instant responsiveness
     const savedData = localStorage.getItem(`sobinote-data-${phone}`)
@@ -253,6 +270,26 @@ export default function Page() {
     const savedAccounts = localStorage.getItem(`sobinote-accounts-${phone}`)
     if (savedAccounts) setAccounts(JSON.parse(savedAccounts))
     else setAccounts([])
+
+    const savedCatGroups = localStorage.getItem(`sobinote-cat-groups-${phone}`)
+    if (savedCatGroups) {
+      try {
+        setCatGroups(JSON.parse(savedCatGroups))
+      } catch {
+        setCatGroups(defaultCategoryGroups)
+      }
+    } else {
+      const savedCats = localStorage.getItem(`sobinote-cats-${phone}`)
+      if (savedCats) {
+        try {
+          setCatGroups({ ...defaultCategoryGroups, expense: JSON.parse(savedCats) })
+        } catch {
+          setCatGroups(defaultCategoryGroups)
+        }
+      } else {
+        setCatGroups(defaultCategoryGroups)
+      }
+    }
 
     const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
     setUserName(users[phone]?.name || '')
@@ -412,7 +449,10 @@ export default function Page() {
       <aside className={mobileNav ? 'sidebar open' : 'sidebar'}>
         <div className="brand">
           <div className="brand-icon"><Wallet /></div>
-          <span>사명가의 소비노트</span>
+          <div className="brand-text">
+            <span className="brand-sub">사명가의</span>
+            <span className="brand-main">소비노트</span>
+          </div>
         </div>
         <nav>
           {nav.map(n => (
@@ -495,8 +535,8 @@ export default function Page() {
           {page === 'annual' && <Annual data={data} />}
           {page === 'settings' && (
             <SettingsView
-              cats={cats}
-              setCats={setCats}
+              catGroups={catGroups}
+              onUpdateCatGroups={persistCatGroups}
               currentUser={currentUser}
               userName={userName}
               onUpdateName={(name) => setUserName(name)}
@@ -511,7 +551,7 @@ export default function Page() {
           initialDate={modalInitialDate}
           initialType={modalDefaultType}
           initialCategory={modalDefaultCategory}
-          cats={cats}
+          catGroups={catGroups}
           onClose={() => {
             setModal(false)
             setEditing(null)
@@ -1766,11 +1806,38 @@ function AccountItemModal({
   )
 }
 
-function TransactionModal({ initial, initialDate, initialType, initialCategory, cats, onClose, onSave }: { initial: Transaction | null; initialDate?: string; initialType?: TransactionType; initialCategory?: string; cats: string[]; onClose: () => void; onSave: (t: Omit<Transaction, 'id'>) => void }) {
+function TransactionModal({ initial, initialDate, initialType, initialCategory, catGroups, onClose, onSave }: { initial: Transaction | null; initialDate?: string; initialType?: TransactionType; initialCategory?: string; catGroups: CategoryGroups; onClose: () => void; onSave: (t: Omit<Transaction, 'id'>) => void }) {
+  const getCategoryOptions = (type: TransactionType) => {
+    if (type === 'income') {
+      return catGroups.income.length === 0
+        ? ['카테고리 없음 (설정에서 추가 가능)']
+        : ['카테고리 없음', ...catGroups.income]
+    }
+    if (type === 'saving') {
+      return catGroups.saving.length === 0
+        ? ['카테고리 없음 (설정에서 추가 가능)']
+        : ['카테고리 없음', ...catGroups.saving]
+    }
+    if (type === 'loan_payment') {
+      return catGroups.loan.length === 0
+        ? ['카테고리 없음 (설정에서 추가 가능)']
+        : ['카테고리 없음', ...catGroups.loan]
+    }
+    return catGroups.expense.length > 0 ? catGroups.expense : ['기타']
+  }
+
+  const getDefaultCategory = (type: TransactionType, currentCat?: string) => {
+    const opts = getCategoryOptions(type)
+    if (currentCat && opts.includes(currentCat)) return currentCat
+    return opts[0]
+  }
+
+  const initialResolvedType = initial?.type || initialType || 'variable_expense'
+
   const [t, setT] = useState<Omit<Transaction, 'id'>>(
     initial || {
-      type: initialType || 'variable_expense',
-      category: initialCategory || (initialType === 'income' ? '수입' : cats[0]),
+      type: initialResolvedType,
+      category: initialCategory || getDefaultCategory(initialResolvedType),
       itemName: '',
       amount: 0,
       date: initialDate || new Date().toISOString().slice(0, 10),
@@ -1779,7 +1846,31 @@ function TransactionModal({ initial, initialDate, initialType, initialCategory, 
     }
   )
 
+  const handleTypeChange = (newType: TransactionType) => {
+    setT(prev => ({
+      ...prev,
+      type: newType,
+      category: getDefaultCategory(newType, prev.category)
+    }))
+  }
+
   const set = (k: string, v: any) => setT({ ...t, [k]: v })
+
+  const itemPlaceholder =
+    t.type === 'saving' ? '예: 주택청약, 적금, ETF' :
+    t.type === 'loan_payment' ? '예: 전세대출 원리금, 신용대출' :
+    t.type === 'income' ? '예: 월급, 부수입, 상여금' :
+    t.type === 'fixed_expense' ? '예: 월세, 통신비, 보험료' : '예: 점심 식사, 카페'
+
+  const handleSave = () => {
+    let finalCat = t.category
+    if (finalCat.includes('카테고리 없음')) {
+      finalCat = '카테고리 없음'
+    }
+    onSave({ ...t, category: finalCat })
+  }
+
+  const currentCategoryOptions = getCategoryOptions(t.type)
 
   return (
     <div className="modal-backdrop">
@@ -1790,7 +1881,7 @@ function TransactionModal({ initial, initialDate, initialType, initialCategory, 
         </div>
         <div className="form-grid">
           <label>유형
-            <select value={t.type} onChange={e => set('type', e.target.value)}>
+            <select value={t.type} onChange={e => handleTypeChange(e.target.value as TransactionType)}>
               {Object.entries(typeLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </label>
@@ -1798,21 +1889,21 @@ function TransactionModal({ initial, initialDate, initialType, initialCategory, 
             <input type="date" value={t.date} onChange={e => set('date', e.target.value)} />
           </label>
           <label>항목명
-            <input required value={t.itemName} placeholder="예: 점심 식사" onChange={e => set('itemName', e.target.value)} />
+            <input required value={t.itemName} placeholder={itemPlaceholder} onChange={e => set('itemName', e.target.value)} />
           </label>
           <label>금액
             <input required value={t.amount.toLocaleString()} onChange={e => set('amount', parseMoney(e.target.value))} />
           </label>
           <label>카테고리
             <select value={t.category} onChange={e => set('category', e.target.value)}>
-              {cats.map(c => <option key={c}>{c}</option>)}
+              {currentCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </label>
           <label>메모
             <input value={t.memo} onChange={e => set('memo', e.target.value)} placeholder="선택 입력" />
           </label>
         </div>
-        <button className="primary-btn full" onClick={() => onSave(t)}>저장하기</button>
+        <button className="primary-btn full" onClick={handleSave}>저장하기</button>
       </section>
     </div>
   )
@@ -1889,18 +1980,19 @@ function Annual({ data }: { data: MonthlyData }) {
 }
 
 function SettingsView({
-  cats,
-  setCats,
+  catGroups,
+  onUpdateCatGroups,
   currentUser,
   userName,
   onUpdateName
 }: {
-  cats: string[];
-  setCats: (c: string[]) => void;
+  catGroups: CategoryGroups;
+  onUpdateCatGroups: (c: CategoryGroups) => void;
   currentUser: string;
   userName: string;
   onUpdateName: (name: string) => void;
 }) {
+  const [catTab, setCatTab] = useState<'expense' | 'income' | 'saving' | 'loan'>('expense')
   const [newCat, setNewCat] = useState('')
   const [nameInput, setNameInput] = useState(userName)
   const [nameMsg, setNameMsg] = useState('')
@@ -2015,36 +2107,101 @@ function SettingsView({
       <section className="panel settings-panel">
         <div className="panel-head">
           <div>
-            <h3>변동지출 카테고리</h3>
-            <p className="muted">나의 소비 습관에 맞게 관리해요.</p>
+            <h3>카테고리 설정</h3>
+            <p className="muted">지출뿐 아니라 수입, 저축, 대출상환 카테고리도 자유롭게 관리하세요.</p>
           </div>
         </div>
-        <div className="category-settings">
-          {cats.map((c, i) => (
-            <div key={c}>
-              <input
-                value={c}
-                onChange={e => {
-                  const n = [...cats]
-                  n[i] = e.target.value
-                  setCats(n)
-                }}
-              />
-              <button onClick={() => setCats(cats.filter((_, j) => j !== i))}><Trash2 /></button>
-            </div>
-          ))}
+
+        <div className="category-tabs">
+          <button
+            type="button"
+            className={`category-tab-btn ${catTab === 'expense' ? 'active' : ''}`}
+            onClick={() => { setCatTab('expense'); setNewCat('') }}
+          >
+            변동지출 <span className="tab-count">{catGroups.expense.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`category-tab-btn ${catTab === 'income' ? 'active' : ''}`}
+            onClick={() => { setCatTab('income'); setNewCat('') }}
+          >
+            수입 <span className="tab-count">{catGroups.income.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`category-tab-btn ${catTab === 'saving' ? 'active' : ''}`}
+            onClick={() => { setCatTab('saving'); setNewCat('') }}
+          >
+            저축 <span className="tab-count">{catGroups.saving.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`category-tab-btn ${catTab === 'loan' ? 'active' : ''}`}
+            onClick={() => { setCatTab('loan'); setNewCat('') }}
+          >
+            대출상환 <span className="tab-count">{catGroups.loan.length}</span>
+          </button>
         </div>
+
+        {catTab !== 'expense' && catGroups[catTab].length === 0 && (
+          <div className="empty-cat-box">
+            등록된 {catTab === 'income' ? '수입' : catTab === 'saving' ? '저축' : '대출상환'} 카테고리가 없습니다.<br />
+            추가하지 않아도 거래 추가 시 <b>'카테고리 없음'</b>으로 편리하게 기록됩니다.
+          </div>
+        )}
+
+        {catGroups[catTab].length > 0 && (
+          <div className="category-settings">
+            {catGroups[catTab].map((c, i) => (
+              <div key={`${catTab}-${i}`}>
+                <input
+                  value={c}
+                  onChange={e => {
+                    const nextList = [...catGroups[catTab]]
+                    nextList[i] = e.target.value
+                    onUpdateCatGroups({ ...catGroups, [catTab]: nextList })
+                  }}
+                />
+                <button
+                  type="button"
+                  title="삭제"
+                  onClick={() => {
+                    const nextList = catGroups[catTab].filter((_, j) => j !== i)
+                    onUpdateCatGroups({ ...catGroups, [catTab]: nextList })
+                  }}
+                >
+                  <Trash2 />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="add-category">
           <input
-            placeholder="새 카테고리 이름"
+            placeholder={`새 ${catTab === 'expense' ? '변동지출' : catTab === 'income' ? '수입' : catTab === 'saving' ? '저축' : '대출상환'} 카테고리 (예: ${catTab === 'saving' ? '청약, 적금, ETF' : catTab === 'loan' ? '전세대출, 신용대출' : catTab === 'income' ? '급여, 부수입' : '배달음식'})`}
             value={newCat}
             onChange={e => setNewCat(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                const trimmed = newCat.trim()
+                if (trimmed) {
+                  onUpdateCatGroups({ ...catGroups, [catTab]: [...catGroups[catTab], trimmed] })
+                  setNewCat('')
+                }
+              }
+            }}
           />
           <button
             className="small-btn"
+            type="button"
             onClick={() => {
-              if (newCat) setCats([...cats, newCat])
-              setNewCat('')
+              const trimmed = newCat.trim()
+              if (trimmed) {
+                onUpdateCatGroups({ ...catGroups, [catTab]: [...catGroups[catTab], trimmed] })
+                setNewCat('')
+              }
             }}
           >
             <Plus /> 추가

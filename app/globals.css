@@ -67,6 +67,23 @@ button { cursor: pointer; }
   letter-spacing: -0.03em;
   color: var(--foreground);
 }
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.brand-text .brand-sub {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted, #8e8e93);
+  letter-spacing: -0.02em;
+}
+.brand-text .brand-main {
+  font-size: 1.18rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--foreground);
+}
 .auth-mark { margin-bottom: 2rem; }
 .brand-icon {
   width: 2.25rem;
@@ -679,7 +696,58 @@ tbody td b { color: var(--foreground); font-weight: 700; }
 
 /* Settings View */
 .settings-panel { max-width: 780px; margin-bottom: 1.25rem; }
-.category-settings { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 1rem; }
+.category-tabs {
+  display: flex;
+  gap: 0.35rem;
+  background: #f2f2f7;
+  padding: 4px;
+  border-radius: 12px;
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+.category-tab-btn {
+  flex: 1;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  background: transparent;
+  border-radius: 9px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted, #8e8e93);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+.category-tab-btn.active {
+  background: #ffffff;
+  color: #1d1d1f;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+.category-tab-btn .tab-count {
+  font-size: 0.72rem;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.category-tab-btn.active .tab-count {
+  background: #0071e3;
+  color: #ffffff;
+}
+.empty-cat-box {
+  padding: 1.25rem;
+  text-align: center;
+  background: #f8f8fc;
+  border-radius: 12px;
+  margin-top: 0.75rem;
+  color: var(--muted, #8e8e93);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.category-settings { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.75rem; }
 .category-settings > div { display: flex; gap: 0.5rem; }
 .category-settings input { flex: 1; }
 .add-category { display: flex; gap: 0.6rem; margin-top: 1rem; }
