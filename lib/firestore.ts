@@ -37,6 +37,69 @@ export type MonthlyData = {
 export const categories = ['식비/외식비', '생필품비', '교육/문화비', '교통/유류비', '미용/의료비 등 기타']
 export const collectionPath = (uid: string, name: string) => collection(db!, 'users', uid, name)
 
+export async function getUserProfile(phone: string): Promise<{ password?: string; name?: string } | null> {
+  if (!db) return null
+  try {
+    const snap = await getDocs(collection(db, 'userAccounts'))
+    const found = snap.docs.find(d => d.id === phone)
+    return found ? (found.data() as { password?: string; name?: string }) : null
+  } catch (err) {
+    console.error('Failed to get user profile from Firestore:', err)
+    return null
+  }
+}
+
+export async function saveUserProfile(phone: string, profile: { password?: string; name?: string }) {
+  if (!db) return
+  try {
+    await setDoc(doc(db, 'userAccounts', phone), profile, { merge: true })
+  } catch (err) {
+    console.error('Failed to save user profile to Firestore:', err)
+  }
+}
+
+export async function loadUserDataFromFirestore(phone: string): Promise<MonthlyData | null> {
+  if (!db) return null
+  try {
+    const snap = await getDocs(collection(db, 'userData'))
+    const found = snap.docs.find(d => d.id === phone)
+    return found ? (found.data() as MonthlyData) : null
+  } catch (err) {
+    console.error('Failed to load user data from Firestore:', err)
+    return null
+  }
+}
+
+export async function saveUserDataToFirestore(phone: string, data: MonthlyData) {
+  if (!db) return
+  try {
+    await setDoc(doc(db, 'userData', phone), data, { merge: true })
+  } catch (err) {
+    console.error('Failed to save user data to Firestore:', err)
+  }
+}
+
+export async function loadAccountsFromFirestore(phone: string): Promise<Account[] | null> {
+  if (!db) return null
+  try {
+    const snap = await getDocs(collection(db, 'userBankAccounts'))
+    const found = snap.docs.find(d => d.id === phone)
+    return found ? ((found.data() as { accounts: Account[] }).accounts || []) : null
+  } catch (err) {
+    console.error('Failed to load accounts from Firestore:', err)
+    return null
+  }
+}
+
+export async function saveAccountsToFirestore(phone: string, accounts: Account[]) {
+  if (!db) return
+  try {
+    await setDoc(doc(db, 'userBankAccounts', phone), { accounts }, { merge: true })
+  } catch (err) {
+    console.error('Failed to save accounts to Firestore:', err)
+  }
+}
+
 export async function loadTransactions(uid: string, month: string) {
   if (!db) return []
   const snap = await getDocs(collectionPath(uid, 'transactions'))

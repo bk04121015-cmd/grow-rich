@@ -2,7 +2,25 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, CreditCard, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, Wallet, X } from 'lucide-react'
-import { categories as defaultCategories, money, monthKey, parseMoney, type Account, type AccountItem, type Budget, type MonthlyData, type Transaction, type TransactionType, parseTransactionText } from '@/lib/firestore'
+import {
+  categories as defaultCategories,
+  money,
+  monthKey,
+  parseMoney,
+  type Account,
+  type AccountItem,
+  type Budget,
+  type MonthlyData,
+  type Transaction,
+  type TransactionType,
+  parseTransactionText,
+  getUserProfile,
+  saveUserProfile,
+  loadUserDataFromFirestore,
+  saveUserDataToFirestore,
+  loadAccountsFromFirestore,
+  saveAccountsToFirestore
+} from '@/lib/firestore'
 
 type Page = 'dashboard' | 'calendar' | 'budget' | 'transactions' | 'accounts' | 'annual' | 'settings'
 
@@ -42,7 +60,9 @@ function AuthScreen({ onLogin }: { onLogin: (phone: string) => void }) {
     return `${nums.slice(0, 3)}-${nums.slice(3, 7)}-${nums.slice(7)}`
   }
 
-  const submit = (e: React.FormEvent) => {
+  const [loading, setLoading] = useState(false)
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     const cleanPhone = phone.replace(/\D/g, '')
@@ -55,29 +75,47 @@ function AuthScreen({ onLogin }: { onLogin: (phone: string) => void }) {
       return
     }
 
-    const users: Record<string, { password: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
+    setLoading(true)
+    try {
+      const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
+      const cloudUser = await getUserProfile(cleanPhone)
 
-    if (users[cleanPhone]) {
-      if (users[cleanPhone].password !== password) {
-        setError('비밀번호가 맞지 않아요.')
-        return
+      const targetPw = cloudUser?.password || users[cleanPhone]?.password
+
+      if (targetPw) {
+        if (targetPw !== password) {
+          setError('비밀번호가 맞지 않아요.')
+          setLoading(false)
+          return
+        }
+      } else {
+        if (password !== '1234') {
+          setError('처음이시라면 초기 비밀번호 1234를 입력해주세요.')
+          setLoading(false)
+          return
+        }
+        await saveUserProfile(cleanPhone, { password: '1234' })
+        users[cleanPhone] = { password: '1234' }
+        localStorage.setItem('sobinote-users', JSON.stringify(users))
       }
-    } else {
-      if (password !== '1234') {
-        setError('처음이시라면 초기 비밀번호 1234를 입력해주세요.')
-        return
+
+      if (cloudUser) {
+        users[cleanPhone] = { ...users[cleanPhone], ...cloudUser }
+        localStorage.setItem('sobinote-users', JSON.stringify(users))
       }
-      users[cleanPhone] = { password: '1234' }
-      localStorage.setItem('sobinote-users', JSON.stringify(users))
-    }
 
-    if (autoLogin) {
-      localStorage.setItem('sobinote-session', JSON.stringify({ phone: cleanPhone }))
-    } else {
-      localStorage.removeItem('sobinote-session')
-    }
+      if (autoLogin) {
+        localStorage.setItem('sobinote-session', JSON.stringify({ phone: cleanPhone }))
+      } else {
+        localStorage.removeItem('sobinote-session')
+      }
 
-    onLogin(cleanPhone)
+      onLogin(cleanPhone)
+    } catch {
+      setError('로그인 처리 중 오류가 발생했어요.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -206,7 +244,8 @@ export default function Page() {
   const [itemModalAccount, setItemModalAccount] = useState<Account | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
 
-  const loadUserData = (phone: string) => {
+  const loadUserData = async (phone: string) => {
+    // 1. First load from local storage for instant responsiveness
     const savedData = localStorage.getItem(`sobinote-data-${phone}`)
     if (savedData) setData(JSON.parse(savedData))
     else setData({ transactions: [], budgets: [], expectedIncome: 0 })
@@ -217,6 +256,31 @@ export default function Page() {
 
     const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
     setUserName(users[phone]?.name || '')
+
+    // 2. Fetch from Firestore to sync latest across devices
+    try {
+      const [cloudData, cloudAccounts, cloudProfile] = await Promise.all([
+        loadUserDataFromFirestore(phone),
+        loadAccountsFromFirestore(phone),
+        getUserProfile(phone)
+      ])
+
+      if (cloudData) {
+        setData(cloudData)
+        localStorage.setItem(`sobinote-data-${phone}`, JSON.stringify(cloudData))
+      }
+      if (cloudAccounts) {
+        setAccounts(cloudAccounts)
+        localStorage.setItem(`sobinote-accounts-${phone}`, JSON.stringify(cloudAccounts))
+      }
+      if (cloudProfile) {
+        if (cloudProfile.name) setUserName(cloudProfile.name)
+        users[phone] = { ...users[phone], ...cloudProfile }
+        localStorage.setItem('sobinote-users', JSON.stringify(users))
+      }
+    } catch (e) {
+      console.error('Cloud sync error on load:', e)
+    }
   }
 
   // Auto-login check
@@ -235,12 +299,18 @@ export default function Page() {
 
   const persist = (next: MonthlyData) => {
     setData(next)
-    if (currentUser) localStorage.setItem(`sobinote-data-${currentUser}`, JSON.stringify(next))
+    if (currentUser) {
+      localStorage.setItem(`sobinote-data-${currentUser}`, JSON.stringify(next))
+      saveUserDataToFirestore(currentUser, next)
+    }
   }
 
   const persistAccounts = (next: Account[]) => {
     setAccounts(next)
-    if (currentUser) localStorage.setItem(`sobinote-accounts-${currentUser}`, JSON.stringify(next))
+    if (currentUser) {
+      localStorage.setItem(`sobinote-accounts-${currentUser}`, JSON.stringify(next))
+      saveAccountsToFirestore(currentUser, next)
+    }
   }
 
   const totals = useMemo(() => {
@@ -1832,7 +1902,7 @@ function SettingsView({
   const [pwMsg, setPwMsg] = useState('')
   const [pwOk, setPwOk] = useState(false)
 
-  const saveName = (e: React.FormEvent) => {
+  const saveName = async (e: React.FormEvent) => {
     e.preventDefault()
     const trimmed = nameInput.trim()
     const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
@@ -1840,16 +1910,20 @@ function SettingsView({
     users[currentUser].name = trimmed
     localStorage.setItem('sobinote-users', JSON.stringify(users))
     onUpdateName(trimmed)
+    await saveUserProfile(currentUser, { name: trimmed })
     setNameMsg('이름이 저장되었어요!')
     setTimeout(() => setNameMsg(''), 2500)
   }
 
-  const changePassword = (e: React.FormEvent) => {
+  const changePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setPwMsg('')
     setPwOk(false)
     const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
-    if (!users[currentUser] || users[currentUser].password !== currentPw) {
+    const cloudUser = await getUserProfile(currentUser)
+    const activePw = cloudUser?.password || users[currentUser]?.password || '1234'
+
+    if (activePw !== currentPw) {
       setPwMsg('현재 비밀번호가 맞지 않아요.')
       return
     }
@@ -1861,8 +1935,9 @@ function SettingsView({
       setPwMsg('새 비밀번호가 일치하지 않아요.')
       return
     }
-    users[currentUser].password = newPw
+    users[currentUser] = { ...users[currentUser], password: newPw }
     localStorage.setItem('sobinote-users', JSON.stringify(users))
+    await saveUserProfile(currentUser, { password: newPw })
     setPwMsg('비밀번호가 변경되었어요!')
     setPwOk(true)
     setCurrentPw('')
