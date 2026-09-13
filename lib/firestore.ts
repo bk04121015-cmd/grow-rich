@@ -22,7 +22,17 @@ export type Account = {
   items: AccountItem[]
 }
 
-export type MonthlyData = { expectedIncome: number; budgets: Budget[]; transactions: Transaction[] }
+export type MonthlyData = {
+  expectedIncome: number;
+  budgets: Budget[];
+  transactions: Transaction[];
+  savingGoal?: string;
+  praisePoints?: string;
+  reflectionPoints?: string;
+  wishList?: string;
+  consumptionGoal?: string;
+  weeklyFeedback?: Record<string, { reflection: string; praise: string }>;
+}
 
 export const categories = ['식비/외식비', '생필품비', '교육/문화비', '교통/유류비', '미용/의료비 등 기타']
 export const collectionPath = (uid: string, name: string) => collection(db!, 'users', uid, name)

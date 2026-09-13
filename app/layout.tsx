@@ -40,6 +40,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className="bg-background">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="소비노트" />
+        <meta name="mobile-web-app-capable" content="yes" />
+      </head>
       <body className="antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
