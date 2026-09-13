@@ -190,6 +190,7 @@ function Donut({ data }: { data: { name: string; value: number }[] }) {
 
 export default function Page() {
   const [currentUser, setCurrentUser] = useState<string | null>(null)
+  const [userName, setUserName] = useState<string>('')
   const [page, setPage] = useState<Page>('dashboard')
   const [month, setMonth] = useState(monthKey())
   const [data, setData] = useState<MonthlyData>({ transactions: [], budgets: [], expectedIncome: 0 })
@@ -213,6 +214,9 @@ export default function Page() {
     const savedAccounts = localStorage.getItem(`sobinote-accounts-${phone}`)
     if (savedAccounts) setAccounts(JSON.parse(savedAccounts))
     else setAccounts([])
+
+    const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
+    setUserName(users[phone]?.name || '')
   }
 
   // Auto-login check
@@ -363,7 +367,12 @@ export default function Page() {
             <p className="eyebrow">PERSONAL FINANCE</p>
             <h1>{nav.find(n => n.id === page)?.label}</h1>
           </div>
-          <button className="profile" onClick={() => setPage('settings')}>{currentUser.slice(-4, -2)}<span>{currentUser.slice(-2)}</span></button>
+          <button className="profile-btn" onClick={() => setPage('settings')} title="설정으로 이동">
+            <span className="profile-avatar">
+              {userName ? (userName.length > 2 ? userName.slice(-2) : userName) : currentUser.slice(-2)}
+            </span>
+            {userName && <span className="profile-name-tag">{userName}님</span>}
+          </button>
         </header>
 
         <div className="content">
@@ -414,7 +423,15 @@ export default function Page() {
             />
           )}
           {page === 'annual' && <Annual data={data} />}
-          {page === 'settings' && <SettingsView cats={cats} setCats={setCats} currentUser={currentUser} />}
+          {page === 'settings' && (
+            <SettingsView
+              cats={cats}
+              setCats={setCats}
+              currentUser={currentUser}
+              userName={userName}
+              onUpdateName={(name) => setUserName(name)}
+            />
+          )}
         </div>
       </div>
 
@@ -1793,19 +1810,45 @@ function Annual({ data }: { data: MonthlyData }) {
   )
 }
 
-function SettingsView({ cats, setCats, currentUser }: { cats: string[]; setCats: (c: string[]) => void; currentUser: string }) {
+function SettingsView({
+  cats,
+  setCats,
+  currentUser,
+  userName,
+  onUpdateName
+}: {
+  cats: string[];
+  setCats: (c: string[]) => void;
+  currentUser: string;
+  userName: string;
+  onUpdateName: (name: string) => void;
+}) {
   const [newCat, setNewCat] = useState('')
+  const [nameInput, setNameInput] = useState(userName)
+  const [nameMsg, setNameMsg] = useState('')
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw] = useState('')
   const [confirmPw, setConfirmPw] = useState('')
   const [pwMsg, setPwMsg] = useState('')
   const [pwOk, setPwOk] = useState(false)
 
+  const saveName = (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = nameInput.trim()
+    const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
+    if (!users[currentUser]) users[currentUser] = { password: '1234' }
+    users[currentUser].name = trimmed
+    localStorage.setItem('sobinote-users', JSON.stringify(users))
+    onUpdateName(trimmed)
+    setNameMsg('이름이 저장되었어요!')
+    setTimeout(() => setNameMsg(''), 2500)
+  }
+
   const changePassword = (e: React.FormEvent) => {
     e.preventDefault()
     setPwMsg('')
     setPwOk(false)
-    const users: Record<string, { password: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
+    const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
     if (!users[currentUser] || users[currentUser].password !== currentPw) {
       setPwMsg('현재 비밀번호가 맞지 않아요.')
       return
@@ -1844,8 +1887,31 @@ function SettingsView({ cats, setCats, currentUser }: { cats: string[]; setCats:
       <section className="panel settings-panel">
         <div className="panel-head">
           <div>
-            <h3>내 계정</h3>
-            <p className="muted">로그인된 핸드폰 번호: <b>{displayPhone}</b></p>
+            <h3>내 프로필</h3>
+            <p className="muted">로그인된 계정: <b>{displayPhone}</b></p>
+          </div>
+        </div>
+        <form onSubmit={saveName} className="form-stack" style={{ marginTop: '0.75rem', marginBottom: '1.5rem' }}>
+          <label>사용자 이름 (별명)
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+              <input
+                type="text"
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                placeholder="예: 홍길동, 지출왕"
+                style={{ flex: 1 }}
+              />
+              <button className="small-btn" type="submit">이름 저장</button>
+            </div>
+          </label>
+          {nameMsg && <p className="success">{nameMsg}</p>}
+        </form>
+
+        <hr style={{ border: 'none', borderTop: '1px solid var(--line)', margin: '1.25rem 0' }} />
+
+        <div className="panel-head" style={{ padding: 0, marginBottom: '0.5rem' }}>
+          <div>
+            <h3 style={{ fontSize: '1rem' }}>비밀번호 변경</h3>
           </div>
         </div>
         <form onSubmit={changePassword} className="form-stack" style={{ marginTop: '0.5rem' }}>

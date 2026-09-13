@@ -206,6 +206,41 @@ header {
 }
 .menu-btn { display: none; }
 .main header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.03em; margin: 0; color: var(--foreground); }
+.profile-btn {
+  border: 1px solid var(--line-strong, #e5e5ea);
+  background: #ffffff;
+  color: var(--foreground);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem 0.25rem 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+.profile-btn:hover {
+  background: var(--surface, #f5f5f7);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+.profile-avatar {
+  background: var(--primary-light, #e8f0fe);
+  color: var(--primary, #0071e3);
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.8rem;
+  display: grid;
+  place-items: center;
+}
+.profile-name-tag {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
 .profile {
   border: 0;
   background: var(--primary-light);
@@ -518,14 +553,14 @@ header {
 .income-badge { background: var(--income-light); color: var(--income); }
 .expense-badge { background: var(--expense-light); color: var(--expense); }
 
-/* Calendar inline tx rows */
+/* Calendar inline tx rows — TimeBlocks style */
 .cal-empty { opacity: 0; pointer-events: none; }
 
 .cal-tx-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
+  gap: 3px;
+  margin-top: 5px;
   width: 100%;
 }
 
@@ -534,29 +569,39 @@ header {
   justify-content: space-between;
   align-items: center;
   gap: 4px;
-  padding: 1px 4px;
+  padding: 2px 6px 2px 7px;
   border-radius: 5px;
-  font-size: 0.67rem;
+  font-size: 0.68rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.1s;
+  transition: filter 0.12s ease, transform 0.1s ease;
   overflow: hidden;
+  line-height: 1.5;
+  width: 100%;
+  border-left: 3px solid transparent;
 }
 
-.cal-tx-row:hover { opacity: 0.75; }
+.cal-tx-row:hover {
+  filter: brightness(0.92);
+  transform: translateX(1px);
+}
 
 .cal-tx-income {
-  background: var(--income-light, #e8faf0);
-  color: var(--income, #1a7f3c);
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-left-color: #2563eb;
 }
 
 .cal-tx-expense {
-  background: var(--expense-light, #fff0f0);
-  color: var(--expense, #c0392b);
+  background: #fee2e2;
+  color: #b91c1c;
+  border-left-color: #dc2626;
 }
 
 .cal-tx-saving {
-  background: #e8f0fe;
-  color: #1a56db;
+  background: #d1fae5;
+  color: #065f46;
+  border-left-color: #10b981;
 }
 
 .cal-tx-name {
@@ -564,24 +609,28 @@ header {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .cal-tx-amount {
   font-weight: 700;
   white-space: nowrap;
   flex-shrink: 0;
+  font-size: 0.65rem;
+  opacity: 0.85;
 }
 
 .cal-tx-more {
-  font-size: 0.62rem;
+  font-size: 0.63rem;
   color: var(--muted, #6e6e73);
   background: none;
   border: none;
-  padding: 1px 2px;
+  padding: 1px 3px;
   cursor: pointer;
   text-align: left;
-  line-height: 1.4;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
 }
 
 .cal-tx-more:hover { color: var(--primary, #0071e3); }
