@@ -565,13 +565,15 @@ header {
 }
 
 .cal-tx-bar {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
   width: 100%;
   padding: 3px 6px;
   border-radius: 4px;
   cursor: pointer;
   overflow: hidden;
-  text-align: left;
   line-height: 1.35;
   transition: opacity 0.12s ease, transform 0.1s ease;
   user-select: none;
@@ -596,6 +598,28 @@ header {
 /* 3. 저축: 캡처 속 22일, 29일 '예준일찍옴'의 싱그러운 에메랄드 민트 그린 (#5cc4a7) */
 .cal-bar-saving {
   background-color: #5cc4a7 !important;
+}
+
+.cal-bar-amount {
+  flex-shrink: 0;
+  color: #ffffff !important;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+
+.cal-bar-item {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  color: #ffffff !important;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cal-bar-text {

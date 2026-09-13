@@ -1417,8 +1417,11 @@ function CalendarDayTxList({ tx, maxVisible, onEdit }: { tx: Transaction[]; maxV
             onClick={e => { e.stopPropagation(); onEdit(t) }}
             title={`${t.itemName} (${t.amount.toLocaleString()}원)`}
           >
-            <span className="cal-bar-text">
-              {t.type === 'income' ? '+' : '-'}{formattedAmount} {t.itemName}
+            <span className="cal-bar-amount">
+              {t.type === 'income' ? '+' : '-'}{formattedAmount}
+            </span>
+            <span className="cal-bar-item">
+              {t.itemName}
             </span>
           </div>
         )
