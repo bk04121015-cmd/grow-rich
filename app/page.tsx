@@ -1413,14 +1413,13 @@ function CalendarDayTxList({ tx, maxVisible, onEdit }: { tx: Transaction[]; maxV
         return (
           <div
             key={t.id}
-            className={`cal-tx-row ${t.type === 'income' ? 'cal-tx-income' : t.type === 'saving' ? 'cal-tx-saving' : 'cal-tx-expense'}`}
+            className={`cal-tx-bar ${t.type === 'income' ? 'cal-bar-income' : t.type === 'saving' ? 'cal-bar-saving' : 'cal-bar-expense'}`}
             onClick={e => { e.stopPropagation(); onEdit(t) }}
             title={`${t.itemName} (${t.amount.toLocaleString()}원)`}
           >
-            <span className="cal-tx-amount">
-              {t.type === 'income' ? '+' : '-'}{formattedAmount}
+            <span className="cal-bar-text">
+              {t.type === 'income' ? '+' : '-'}{formattedAmount} {t.itemName}
             </span>
-            <span className="cal-tx-name">{t.itemName}</span>
           </div>
         )
       })}

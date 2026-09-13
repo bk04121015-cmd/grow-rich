@@ -564,60 +564,49 @@ header {
   width: 100%;
 }
 
-.cal-tx-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: opacity 0.12s ease, transform 0.1s ease;
-  overflow: hidden;
-  line-height: 1.4;
+.cal-tx-bar {
+  display: block;
   width: 100%;
-  color: #ffffff !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  line-height: 1.35;
+  transition: opacity 0.12s ease, transform 0.1s ease;
+  user-select: none;
 }
 
-.cal-tx-row:hover {
-  opacity: 0.9;
+.cal-tx-bar:hover {
+  opacity: 0.88;
   transform: translateY(-1px);
 }
 
-/* 지출: 선명한 빨간색/주황색 직사각형 바 */
-.cal-tx-expense {
-  background: #ff4742 !important;
+/* 캡처 이미지 실물 추출 색상 */
+/* 1. 지출: 캡처 속 1일, 14일 '11시 소라', '11시 에이그'의 비비드 탠저린 레드 (#eb440f) */
+.cal-bar-expense {
+  background-color: #eb440f !important;
 }
 
-/* 수입: 선명한 파란색 직사각형 바 */
-.cal-tx-income {
-  background: #0071e3 !important;
+/* 2. 수입: 캡처 속 6일 '12:30위원'의 선명하고 맑은 스카이 블루 (#0091ff) */
+.cal-bar-income {
+  background-color: #0091ff !important;
 }
 
-/* 저축: 보라색/초록색 직사각형 바 */
-.cal-tx-saving {
-  background: #9b51e0 !important;
+/* 3. 저축: 캡처 속 22일, 29일 '예준일찍옴'의 싱그러운 에메랄드 민트 그린 (#5cc4a7) */
+.cal-bar-saving {
+  background-color: #5cc4a7 !important;
 }
 
-.cal-tx-amount {
-  font-weight: 800;
+.cal-bar-text {
+  display: block;
+  color: #ffffff !important;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
   white-space: nowrap;
-  flex-shrink: 0;
-  font-size: 0.66rem;
-  letter-spacing: -0.02em;
-  opacity: 0.95;
-}
-
-.cal-tx-name {
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  opacity: 0.95;
 }
 
 .cal-tx-more {
@@ -640,6 +629,7 @@ header {
   background: #e4e5eb;
   color: var(--primary, #0071e3);
 }
+
 
 .calendar-detail {
   margin-top: 1.5rem;
