@@ -1475,7 +1475,7 @@ function SpendingCalendar({ data, month, onAdd, onEdit }: { data: MonthlyData; m
           const tx = data.transactions.filter(t => t.date === dateKey)
           const isToday = dateKey === todayStr
           const isSelected = selected === dateKey
-          const MAX_VISIBLE = 3
+          const MAX_VISIBLE = 4
 
           return (
             <div
