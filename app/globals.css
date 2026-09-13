@@ -530,7 +530,7 @@ header {
   background: rgba(0, 113, 227, 0.05);
   box-shadow: 0 4px 14px rgba(0, 113, 227, 0.12);
 }
-.calendar-day.is-today span {
+.calendar-day.is-today .calendar-day-header span {
   background: var(--primary);
   color: #ffffff;
   border-radius: 50%;
