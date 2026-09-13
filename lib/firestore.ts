@@ -3,6 +3,7 @@ import { db } from './firebase'
 
 export type TransactionType = 'income' | 'fixed_expense' | 'variable_expense' | 'saving' | 'loan_payment'
 export type Transaction = { id: string; type: TransactionType; category: string; itemName: string; amount: number; date: string; isRecurring: boolean; recurringDay?: number; memo: string }
+export type RecurringFixedExpense = { id: string; itemName: string; amount: number; day: number; category: string; memo?: string }
 export type Budget = { id: string; section: 'fixed' | 'variable' | 'saving' | 'loan'; itemName?: string; category?: string; amount: number; actualAmount?: number; transferDay?: number }
 
 export type AccountItem = {

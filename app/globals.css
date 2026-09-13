@@ -1030,32 +1030,62 @@ tbody td b { color: var(--foreground); font-weight: 700; }
 .table-scroll-y {
   max-height: 260px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .excel-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
+  table-layout: fixed;
 }
 
 .excel-table th {
   background: #f8f9fa;
-  padding: 0.5rem 0.6rem;
+  padding: 0.45rem 0.35rem;
   font-weight: 600;
   text-align: left;
   border-bottom: 1px solid var(--line-strong);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   color: #495057;
   position: sticky;
   top: 0;
   z-index: 1;
+  white-space: nowrap;
 }
 
 .excel-table td {
-  padding: 0.5rem 0.6rem;
+  padding: 0.45rem 0.35rem;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
   vertical-align: middle;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.danger-btn {
+  background: #ff3b30;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.danger-btn:hover {
+  opacity: 0.88;
 }
 
 .excel-table tbody tr:hover {

@@ -15,6 +15,7 @@ import {
   type MonthlyData,
   type Transaction,
   type TransactionType,
+  type RecurringFixedExpense,
   parseTransactionText,
   getUserProfile,
   saveUserProfile,
@@ -240,6 +241,7 @@ export default function Page() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [catGroups, setCatGroups] = useState<CategoryGroups>(defaultCategoryGroups)
   const cats = catGroups.expense
+  const [recurringFixed, setRecurringFixed] = useState<RecurringFixedExpense[]>([])
   const [modal, setModal] = useState(false)
   const [modalInitialDate, setModalInitialDate] = useState<string | undefined>(undefined)
   const [modalDefaultType, setModalDefaultType] = useState<TransactionType | undefined>(undefined)
@@ -254,6 +256,13 @@ export default function Page() {
     setCatGroups(next)
     if (currentUser) {
       localStorage.setItem(`sobinote-cat-groups-${currentUser}`, JSON.stringify(next))
+    }
+  }
+
+  const persistRecurringFixed = (next: RecurringFixedExpense[]) => {
+    setRecurringFixed(next)
+    if (currentUser) {
+      localStorage.setItem(`sobinote-recurring-fixed-${currentUser}`, JSON.stringify(next))
     }
   }
 
@@ -289,6 +298,17 @@ export default function Page() {
       } else {
         setCatGroups(defaultCategoryGroups)
       }
+    }
+
+    const savedRecurring = localStorage.getItem(`sobinote-recurring-fixed-${phone}`)
+    if (savedRecurring) {
+      try {
+        setRecurringFixed(JSON.parse(savedRecurring))
+      } catch {
+        setRecurringFixed([])
+      }
+    } else {
+      setRecurringFixed([])
     }
 
     const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
@@ -387,6 +407,45 @@ export default function Page() {
 
   if (!currentUser) return <AuthScreen onLogin={(phone) => { setCurrentUser(phone); loadUserData(phone) }} />
 
+  // 매달 반복되는 고정지출을 현재 월의 거래 목록에 자동 동기화
+  useEffect(() => {
+    if (!recurringFixed.length || !currentUser) return
+
+    const [y, m] = month.split('-').map(Number)
+    const maxDays = new Date(y, m, 0).getDate()
+    let changed = false
+    const nextTx = [...data.transactions]
+
+    recurringFixed.forEach(rf => {
+      const targetDay = Math.min(rf.day || 1, maxDays)
+      const dateStr = `${month}-${String(targetDay).padStart(2, '0')}`
+
+      // 이번 달에 이미 같은 고정지출이 존재하는지 확인
+      const exists = nextTx.some(
+        t => t.type === 'fixed_expense' && t.itemName === rf.itemName && t.date.startsWith(month)
+      )
+
+      if (!exists) {
+        nextTx.push({
+          id: uid(),
+          type: 'fixed_expense',
+          category: rf.category || '고정지출',
+          itemName: rf.itemName,
+          amount: rf.amount,
+          date: dateStr,
+          isRecurring: true,
+          recurringDay: rf.day,
+          memo: rf.memo || '매월 반복 고정지출'
+        })
+        changed = true
+      }
+    })
+
+    if (changed) {
+      persist({ ...data, transactions: nextTx })
+    }
+  }, [month, recurringFixed, currentUser])
+
   const openAddModal = (dateStr?: string, defaultType?: TransactionType, defaultCategory?: string) => {
     setEditing(null)
     setModalInitialDate(dateStr)
@@ -396,15 +455,100 @@ export default function Page() {
   }
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
+    const txId = editing?.id || uid()
     persist({
       ...data,
-      transactions: [{ ...t, id: editing?.id || uid() }, ...data.transactions.filter(x => x.id !== editing?.id)]
+      transactions: [{ ...t, id: txId }, ...data.transactions.filter(x => x.id !== editing?.id)]
     })
+
+    // 고정지출이면 매달 반복 템플릿에 자동 등록/동기화
+    if (t.type === 'fixed_expense') {
+      const day = parseInt(t.date.slice(8)) || 1
+      const existingIdx = recurringFixed.findIndex(
+        rf => rf.itemName === t.itemName || (editing && rf.itemName === editing.itemName)
+      )
+      if (existingIdx >= 0) {
+        const updated = [...recurringFixed]
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          itemName: t.itemName,
+          amount: t.amount,
+          day: day,
+          category: t.category,
+          memo: t.memo
+        }
+        persistRecurringFixed(updated)
+      } else {
+        persistRecurringFixed([
+          ...recurringFixed,
+          {
+            id: uid(),
+            itemName: t.itemName,
+            amount: t.amount,
+            day: day,
+            category: t.category,
+            memo: t.memo
+          }
+        ])
+      }
+    }
+
     setModal(false)
     setEditing(null)
     setModalInitialDate(undefined)
     setModalDefaultType(undefined)
     setModalDefaultCategory(undefined)
+  }
+
+  const deleteTransaction = (id: string) => {
+    const target = data.transactions.find(x => x.id === id)
+    if (target && target.type === 'fixed_expense') {
+      // 고정지출 삭제 시 매달 반복 목록에서도 제거하여 다음 달 이후에도 자동 생성되지 않도록 함
+      persistRecurringFixed(recurringFixed.filter(rf => rf.itemName !== target.itemName))
+    }
+    persist({
+      ...data,
+      transactions: data.transactions.filter(x => x.id !== id)
+    })
+    setModal(false)
+    setEditing(null)
+  }
+
+  const deleteRecurringFixed = (rfId: string) => {
+    const target = recurringFixed.find(rf => rf.id === rfId)
+    if (target) {
+      persistRecurringFixed(recurringFixed.filter(rf => rf.id !== rfId))
+      persist({
+        ...data,
+        transactions: data.transactions.filter(t => !(t.type === 'fixed_expense' && t.itemName === target.itemName && t.date.startsWith(month)))
+      })
+    }
+  }
+
+  const addRecurringFixed = (item: Omit<RecurringFixedExpense, 'id'>) => {
+    const newRf = { ...item, id: uid() }
+    persistRecurringFixed([...recurringFixed, newRf])
+    const [y, m] = month.split('-').map(Number)
+    const maxDays = new Date(y, m, 0).getDate()
+    const targetDay = Math.min(newRf.day || 1, maxDays)
+    const dateStr = `${month}-${String(targetDay).padStart(2, '0')}`
+    persist({
+      ...data,
+      transactions: [
+        ...data.transactions,
+        {
+          id: uid(),
+          type: 'fixed_expense',
+          category: newRf.category || '고정지출',
+          itemName: newRf.itemName,
+          amount: newRf.amount,
+          date: dateStr,
+          isRecurring: true,
+          recurringDay: newRf.day,
+          memo: newRf.memo || '매월 반복 고정지출'
+        }
+      ]
+    })
   }
 
   const saveAccount = (acc: Omit<Account, 'id'>) => {
@@ -537,6 +681,9 @@ export default function Page() {
             <SettingsView
               catGroups={catGroups}
               onUpdateCatGroups={persistCatGroups}
+              recurringFixed={recurringFixed}
+              onAddRecurringFixed={addRecurringFixed}
+              onDeleteRecurringFixed={deleteRecurringFixed}
               currentUser={currentUser}
               userName={userName}
               onUpdateName={(name) => setUserName(name)}
@@ -560,6 +707,7 @@ export default function Page() {
             setModalDefaultCategory(undefined)
           }}
           onSave={addTransaction}
+          onDelete={deleteTransaction}
         />
       )}
 
@@ -768,15 +916,19 @@ function Progress({ name, value, budget, compact = false }: { name: string; valu
 }
 
 function TransactionRow({ t, onEdit }: { t: Transaction; onEdit: (t: Transaction) => void }) {
+  const isPlus = t.type === 'income' || t.type === 'saving'
+  const titleText = t.itemName?.trim() || (t.category && t.category !== '카테고리 없음' ? t.category : typeLabel[t.type])
+  const catText = t.category && t.category !== '카테고리 없음' ? t.category : typeLabel[t.type]
+
   return (
     <button className="transaction-row" onClick={() => onEdit(t)}>
       <span className={`transaction-icon ${t.type}`}><Wallet /></span>
       <span className="transaction-info">
-        <b>{t.itemName}</b>
-        <small>{t.category} · {t.date.slice(5).replace('-', '.')}</small>
+        <b>{titleText}</b>
+        <small>{catText} · {t.date.slice(5).replace('-', '.')}</small>
       </span>
       <strong className={typeColor[t.type]}>
-        {t.type === 'income' ? '+' : '-'}{money(t.amount)}
+        {isPlus ? '+' : '-'}{money(t.amount)}
       </strong>
     </button>
   )
@@ -1045,16 +1197,16 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                     <table className="excel-table">
                       <thead>
                         <tr>
-                          <th style={{ width: '50px' }}>날짜</th>
+                          <th style={{ width: '38px', textAlign: 'center' }}>날짜</th>
                           <th>내용</th>
-                          <th style={{ width: '90px' }}>금액</th>
+                          <th style={{ width: '74px', textAlign: 'right' }}>금액</th>
                         </tr>
                       </thead>
                       <tbody>
                         {incomeList.map(t => (
                           <tr key={t.id} onClick={() => onEdit(t)}>
                             <td className="text-center">{t.date.slice(8)}일</td>
-                            <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
+                            <td className="truncate-cell" title={t.itemName}>{t.itemName || (t.category && t.category !== '카테고리 없음' ? t.category : '수입')}</td>
                             <td className="text-right text-income">+{t.amount.toLocaleString()}</td>
                           </tr>
                         ))}
@@ -1081,17 +1233,17 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                     <table className="excel-table">
                       <thead>
                         <tr>
-                          <th style={{ width: '50px' }}>날짜</th>
+                          <th style={{ width: '38px', textAlign: 'center' }}>날짜</th>
                           <th>내용</th>
-                          <th style={{ width: '90px' }}>금액</th>
+                          <th style={{ width: '74px', textAlign: 'right' }}>금액</th>
                         </tr>
                       </thead>
                       <tbody>
                         {savingList.map(t => (
                           <tr key={t.id} onClick={() => onEdit(t)}>
                             <td className="text-center">{t.date.slice(8)}일</td>
-                            <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
-                            <td className="text-right text-primary">-{t.amount.toLocaleString()}</td>
+                            <td className="truncate-cell" title={t.itemName}>{t.itemName || (t.category && t.category !== '카테고리 없음' ? t.category : '저축')}</td>
+                            <td className="text-right text-primary font-bold">+{t.amount.toLocaleString()}</td>
                           </tr>
                         ))}
                         {Array.from({ length: Math.max(0, 5 - savingList.length) }).map((_, i) => (
@@ -1103,7 +1255,7 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                         ))}
                         <tr className="sum-row">
                           <td colSpan={2}>합계</td>
-                          <td className="text-right text-primary font-bold">-{totalSaving.toLocaleString()}</td>
+                          <td className="text-right text-primary font-bold">+{totalSaving.toLocaleString()}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1117,16 +1269,16 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                     <table className="excel-table">
                       <thead>
                         <tr>
-                          <th style={{ width: '50px' }}>날짜</th>
+                          <th style={{ width: '38px', textAlign: 'center' }}>날짜</th>
                           <th>내용</th>
-                          <th style={{ width: '90px' }}>금액</th>
+                          <th style={{ width: '74px', textAlign: 'right' }}>금액</th>
                         </tr>
                       </thead>
                       <tbody>
                         {fixedList.map(t => (
                           <tr key={t.id} onClick={() => onEdit(t)}>
                             <td className="text-center">{t.date.slice(8)}일</td>
-                            <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
+                            <td className="truncate-cell" title={t.itemName}>{t.itemName || (t.category && t.category !== '카테고리 없음' ? t.category : '고정지출')}</td>
                             <td className="text-right text-expense">-{t.amount.toLocaleString()}</td>
                           </tr>
                         ))}
@@ -1268,76 +1420,76 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                   <div className="excel-table-container">
                     <div className="table-header-title text-income-bg">수입</div>
                     <div className="table-scroll-y">
-                      <table className="excel-table">
-                        <thead><tr><th style={{ width: '50px' }}>날짜</th><th>내용</th><th style={{ width: '90px' }}>금액</th></tr></thead>
-                        <tbody>
-                          {weekTx.filter(t => t.type === 'income').map(t => (
-                            <tr key={t.id} onClick={() => onEdit(t)}>
-                              <td className="text-center">{t.date.slice(8)}일</td>
-                              <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
-                              <td className="text-right text-income">+{t.amount.toLocaleString()}</td>
-                            </tr>
-                          ))}
-                          {Array.from({ length: Math.max(0, 3 - weekTx.filter(t => t.type === 'income').length) }).map((_, i) => (
-                            <tr key={`wi-${i}`} onClick={() => onAddWithDefault('income', '수입')} className="empty-tr">
-                              <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
-                            </tr>
-                          ))}
-                          <tr className="sum-row">
-                            <td colSpan={2}>합계</td>
-                            <td className="text-right text-income font-bold">+{weekIncome.toLocaleString()}</td>
+                    <table className="excel-table">
+                      <thead><tr><th style={{ width: '38px', textAlign: 'center' }}>날짜</th><th>내용</th><th style={{ width: '74px', textAlign: 'right' }}>금액</th></tr></thead>
+                      <tbody>
+                        {weekTx.filter(t => t.type === 'income').map(t => (
+                          <tr key={t.id} onClick={() => onEdit(t)}>
+                            <td className="text-center">{t.date.slice(8)}일</td>
+                            <td className="truncate-cell" title={t.itemName}>{t.itemName || (t.category && t.category !== '카테고리 없음' ? t.category : '수입')}</td>
+                            <td className="text-right text-income">+{t.amount.toLocaleString()}</td>
                           </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  {/* 저축 */}
-                  <div className="excel-table-container">
-                    <div className="table-header-title text-saving-bg">저축</div>
-                    <div className="table-scroll-y">
-                      <table className="excel-table">
-                        <thead><tr><th style={{ width: '50px' }}>날짜</th><th>내용</th><th style={{ width: '90px' }}>금액</th></tr></thead>
-                        <tbody>
-                          {weekTx.filter(t => t.type === 'saving').map(t => (
-                            <tr key={t.id} onClick={() => onEdit(t)}>
-                              <td className="text-center">{t.date.slice(8)}일</td>
-                              <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
-                              <td className="text-right text-primary">-{t.amount.toLocaleString()}</td>
-                            </tr>
-                          ))}
-                          {Array.from({ length: Math.max(0, 3 - weekTx.filter(t => t.type === 'saving').length) }).map((_, i) => (
-                            <tr key={`ws-${i}`} onClick={() => onAddWithDefault('saving', '저축')} className="empty-tr">
-                              <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
-                            </tr>
-                          ))}
-                          <tr className="sum-row">
-                            <td colSpan={2}>합계</td>
-                            <td className="text-right text-primary font-bold">-{weekSaving.toLocaleString()}</td>
+                        ))}
+                        {Array.from({ length: Math.max(0, 3 - weekTx.filter(t => t.type === 'income').length) }).map((_, i) => (
+                          <tr key={`wi-${i}`} onClick={() => onAddWithDefault('income', '수입')} className="empty-tr">
+                            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
                           </tr>
-                        </tbody>
-                      </table>
-                    </div>
+                        ))}
+                        <tr className="sum-row">
+                          <td colSpan={2}>합계</td>
+                          <td className="text-right text-income font-bold">+{weekIncome.toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
-                  {/* 고정지출 */}
-                  <div className="excel-table-container">
-                    <div className="table-header-title text-fixed-bg">고정지출</div>
-                    <div className="table-scroll-y">
-                      <table className="excel-table">
-                        <thead><tr><th style={{ width: '50px' }}>날짜</th><th>내용</th><th style={{ width: '90px' }}>금액</th></tr></thead>
-                        <tbody>
-                          {weekTx.filter(t => t.type === 'fixed_expense').map(t => (
-                            <tr key={t.id} onClick={() => onEdit(t)}>
-                              <td className="text-center">{t.date.slice(8)}일</td>
-                              <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
-                              <td className="text-right text-expense">-{t.amount.toLocaleString()}</td>
-                            </tr>
-                          ))}
-                          {Array.from({ length: Math.max(0, 3 - weekTx.filter(t => t.type === 'fixed_expense').length) }).map((_, i) => (
-                            <tr key={`wf-${i}`} onClick={() => onAddWithDefault('fixed_expense', '고정지출')} className="empty-tr">
-                              <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
-                            </tr>
-                          ))}
-                          <tr className="sum-row">
+                </div>
+                {/* 저축 */}
+                <div className="excel-table-container">
+                  <div className="table-header-title text-saving-bg">저축</div>
+                  <div className="table-scroll-y">
+                    <table className="excel-table">
+                      <thead><tr><th style={{ width: '38px', textAlign: 'center' }}>날짜</th><th>내용</th><th style={{ width: '74px', textAlign: 'right' }}>금액</th></tr></thead>
+                      <tbody>
+                        {weekTx.filter(t => t.type === 'saving').map(t => (
+                          <tr key={t.id} onClick={() => onEdit(t)}>
+                            <td className="text-center">{t.date.slice(8)}일</td>
+                            <td className="truncate-cell" title={t.itemName}>{t.itemName || (t.category && t.category !== '카테고리 없음' ? t.category : '저축')}</td>
+                            <td className="text-right text-primary font-bold">+{t.amount.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {Array.from({ length: Math.max(0, 3 - weekTx.filter(t => t.type === 'saving').length) }).map((_, i) => (
+                          <tr key={`ws-${i}`} onClick={() => onAddWithDefault('saving', '저축')} className="empty-tr">
+                            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                          </tr>
+                        ))}
+                        <tr className="sum-row">
+                          <td colSpan={2}>합계</td>
+                          <td className="text-right text-primary font-bold">+{weekSaving.toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {/* 고정지출 */}
+                <div className="excel-table-container">
+                  <div className="table-header-title text-fixed-bg">고정지출</div>
+                  <div className="table-scroll-y">
+                    <table className="excel-table">
+                      <thead><tr><th style={{ width: '38px', textAlign: 'center' }}>날짜</th><th>내용</th><th style={{ width: '74px', textAlign: 'right' }}>금액</th></tr></thead>
+                      <tbody>
+                        {weekTx.filter(t => t.type === 'fixed_expense').map(t => (
+                          <tr key={t.id} onClick={() => onEdit(t)}>
+                            <td className="text-center">{t.date.slice(8)}일</td>
+                            <td className="truncate-cell" title={t.itemName}>{t.itemName || (t.category && t.category !== '카테고리 없음' ? t.category : '고정지출')}</td>
+                            <td className="text-right text-expense">-{t.amount.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {Array.from({ length: Math.max(0, 3 - weekTx.filter(t => t.type === 'fixed_expense').length) }).map((_, i) => (
+                          <tr key={`wf-${i}`} onClick={() => onAddWithDefault('fixed_expense', '고정지출')} className="empty-tr">
+                            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                          </tr>
+                        ))}
+                        <tr className="sum-row">
                             <td colSpan={2}>합계</td>
                             <td className="text-right text-expense font-bold">-{weekTx.filter(t => t.type === 'fixed_expense').reduce((a, b) => a + b.amount, 0).toLocaleString()}</td>
                           </tr>
@@ -1450,18 +1602,20 @@ function CalendarDayTxList({ tx, maxVisible, onEdit }: { tx: Transaction[]; maxV
         const formattedAmount = t.amount >= 10000
           ? `${(t.amount / 10000).toFixed(t.amount % 10000 === 0 ? 0 : 1)}만`
           : `${Math.round(t.amount / 1000)}천`
+        const isPlus = t.type === 'income' || t.type === 'saving'
+        const displayName = t.itemName?.trim() || (t.category && t.category !== '카테고리 없음' ? t.category : typeLabel[t.type])
         return (
           <div
             key={t.id}
             className={`cal-tx-bar ${t.type === 'income' ? 'cal-bar-income' : t.type === 'saving' ? 'cal-bar-saving' : 'cal-bar-expense'}`}
             onClick={e => { e.stopPropagation(); onEdit(t) }}
-            title={`${t.itemName} (${t.amount.toLocaleString()}원)`}
+            title={`${displayName} (${t.amount.toLocaleString()}원)`}
           >
             <span className="cal-bar-amount">
-              {t.type === 'income' ? '+' : '-'}{formattedAmount}
+              {isPlus ? '+' : '-'}{formattedAmount}
             </span>
             <span className="cal-bar-item">
-              {t.itemName}
+              {displayName}
             </span>
           </div>
         )
@@ -1493,7 +1647,8 @@ function SpendingCalendar({ data, month, onAdd, onEdit }: { data: MonthlyData; m
   const todayStr = new Date().toISOString().slice(0, 10)
   const dayTx = selected ? data.transactions.filter(t => t.date === selected) : []
   const selectedIncome = dayTx.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0)
-  const selectedExpense = dayTx.filter(t => t.type !== 'income').reduce((a, t) => a + t.amount, 0)
+  const selectedSaving = dayTx.filter(t => t.type === 'saving').reduce((a, t) => a + t.amount, 0)
+  const selectedExpense = dayTx.filter(t => t.type === 'fixed_expense' || t.type === 'variable_expense' || t.type === 'loan_payment').reduce((a, t) => a + t.amount, 0)
 
   return (
     <section className="panel calendar-panel">
@@ -1544,8 +1699,9 @@ function SpendingCalendar({ data, month, onAdd, onEdit }: { data: MonthlyData; m
               <h4>{selected.replaceAll('-', '.')} 거래 내역</h4>
               <p className="muted" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
                 {selectedIncome > 0 && <span className="text-income">수입 +{money(selectedIncome)} </span>}
+                {selectedSaving > 0 && <span className="text-primary">저축 +{money(selectedSaving)} </span>}
                 {selectedExpense > 0 && <span className="text-expense">지출 -{money(selectedExpense)}</span>}
-                {selectedIncome === 0 && selectedExpense === 0 && '기록된 거래가 없습니다.'}
+                {selectedIncome === 0 && selectedSaving === 0 && selectedExpense === 0 && '기록된 거래가 없습니다.'}
               </p>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -1806,7 +1962,7 @@ function AccountItemModal({
   )
 }
 
-function TransactionModal({ initial, initialDate, initialType, initialCategory, catGroups, onClose, onSave }: { initial: Transaction | null; initialDate?: string; initialType?: TransactionType; initialCategory?: string; catGroups: CategoryGroups; onClose: () => void; onSave: (t: Omit<Transaction, 'id'>) => void }) {
+function TransactionModal({ initial, initialDate, initialType, initialCategory, catGroups, onClose, onSave, onDelete }: { initial: Transaction | null; initialDate?: string; initialType?: TransactionType; initialCategory?: string; catGroups: CategoryGroups; onClose: () => void; onSave: (t: Omit<Transaction, 'id'>) => void; onDelete?: (id: string) => void }) {
   const getCategoryOptions = (type: TransactionType) => {
     if (type === 'income') {
       return catGroups.income.length === 0
@@ -1822,6 +1978,9 @@ function TransactionModal({ initial, initialDate, initialType, initialCategory, 
       return catGroups.loan.length === 0
         ? ['카테고리 없음 (설정에서 추가 가능)']
         : ['카테고리 없음', ...catGroups.loan]
+    }
+    if (type === 'fixed_expense') {
+      return ['고정지출', ...catGroups.expense]
     }
     return catGroups.expense.length > 0 ? catGroups.expense : ['기타']
   }
@@ -1856,6 +2015,9 @@ function TransactionModal({ initial, initialDate, initialType, initialCategory, 
 
   const set = (k: string, v: any) => setT({ ...t, [k]: v })
 
+  const currentYearMonth = t.date.slice(0, 7) || new Date().toISOString().slice(0, 7)
+  const currentFixedDay = parseInt(t.date.slice(8)) || 25
+
   const itemPlaceholder =
     t.type === 'saving' ? '예: 주택청약, 적금, ETF' :
     t.type === 'loan_payment' ? '예: 전세대출 원리금, 신용대출' :
@@ -1867,7 +2029,8 @@ function TransactionModal({ initial, initialDate, initialType, initialCategory, 
     if (finalCat.includes('카테고리 없음')) {
       finalCat = '카테고리 없음'
     }
-    onSave({ ...t, category: finalCat })
+    const finalItemName = t.itemName.trim() || (finalCat !== '카테고리 없음' ? finalCat : typeLabel[t.type])
+    onSave({ ...t, itemName: finalItemName, category: finalCat })
   }
 
   const currentCategoryOptions = getCategoryOptions(t.type)
@@ -1885,9 +2048,33 @@ function TransactionModal({ initial, initialDate, initialType, initialCategory, 
               {Object.entries(typeLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </label>
-          <label>날짜
-            <input type="date" value={t.date} onChange={e => set('date', e.target.value)} />
-          </label>
+          {t.type === 'fixed_expense' ? (
+            <label>매월 고정 지출일
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--foreground)' }}>매월</span>
+                <select
+                  value={currentFixedDay}
+                  onChange={e => {
+                    const dayNum = parseInt(e.target.value) || 1
+                    const newDateStr = `${currentYearMonth}-${String(dayNum).padStart(2, '0')}`
+                    set('date', newDateStr)
+                  }}
+                  style={{ flex: 1 }}
+                >
+                  {Array.from({ length: 31 }, (_, idx) => idx + 1).map(d => (
+                    <option key={d} value={d}>{d}일</option>
+                  ))}
+                </select>
+              </div>
+              <small style={{ color: 'var(--muted)', fontSize: '0.74rem', marginTop: '0.35rem', display: 'block' }}>
+                * 매달 이 날짜에 자동으로 달력과 가계부에 기록됩니다.
+              </small>
+            </label>
+          ) : (
+            <label>날짜
+              <input type="date" value={t.date} onChange={e => set('date', e.target.value)} />
+            </label>
+          )}
           <label>항목명
             <input required value={t.itemName} placeholder={itemPlaceholder} onChange={e => set('itemName', e.target.value)} />
           </label>
@@ -1903,7 +2090,22 @@ function TransactionModal({ initial, initialDate, initialType, initialCategory, 
             <input value={t.memo} onChange={e => set('memo', e.target.value)} placeholder="선택 입력" />
           </label>
         </div>
-        <button className="primary-btn full" onClick={handleSave}>저장하기</button>
+        <div className="modal-actions">
+          {initial && onDelete && (
+            <button
+              type="button"
+              className="danger-btn"
+              onClick={() => {
+                if (confirm('이 거래 내역을 삭제하시겠습니까?')) {
+                  onDelete(initial.id)
+                }
+              }}
+            >
+              <Trash2 /> 삭제
+            </button>
+          )}
+          <button className="primary-btn full" onClick={handleSave}>저장하기</button>
+        </div>
       </section>
     </div>
   )
@@ -1982,12 +2184,18 @@ function Annual({ data }: { data: MonthlyData }) {
 function SettingsView({
   catGroups,
   onUpdateCatGroups,
+  recurringFixed,
+  onAddRecurringFixed,
+  onDeleteRecurringFixed,
   currentUser,
   userName,
   onUpdateName
 }: {
   catGroups: CategoryGroups;
   onUpdateCatGroups: (c: CategoryGroups) => void;
+  recurringFixed: RecurringFixedExpense[];
+  onAddRecurringFixed: (item: Omit<RecurringFixedExpense, 'id'>) => void;
+  onDeleteRecurringFixed: (id: string) => void;
   currentUser: string;
   userName: string;
   onUpdateName: (name: string) => void;
@@ -2001,6 +2209,11 @@ function SettingsView({
   const [confirmPw, setConfirmPw] = useState('')
   const [pwMsg, setPwMsg] = useState('')
   const [pwOk, setPwOk] = useState(false)
+
+  const [fixedName, setFixedName] = useState('')
+  const [fixedAmount, setFixedAmount] = useState('')
+  const [fixedDay, setFixedDay] = useState('25')
+  const [showAddFixed, setShowAddFixed] = useState(false)
 
   const saveName = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -2213,13 +2426,97 @@ function SettingsView({
         <div className="panel-head">
           <div>
             <h3>고정지출 템플릿</h3>
-            <p className="muted">매달 반복되는 항목을 미리 등록해두세요.</p>
+            <p className="muted">한 번 등록하면 매달 자동으로 반복 기록되며 언제든 삭제할 수 있어요.</p>
           </div>
-          <button className="small-btn"><Plus /> 템플릿 추가</button>
+          <button
+            type="button"
+            className="small-btn"
+            onClick={() => setShowAddFixed(v => !v)}
+          >
+            <Plus /> {showAddFixed ? '닫기' : '새 고정지출 등록'}
+          </button>
         </div>
+
+        {showAddFixed && (
+          <div style={{ background: '#f8f8fc', padding: '1rem', borderRadius: '12px', marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.8fr', gap: '0.5rem' }}>
+              <input
+                placeholder="항목명 (예: 월세, 통신비)"
+                value={fixedName}
+                onChange={e => setFixedName(e.target.value)}
+              />
+              <input
+                placeholder="금액 (예: 500,000)"
+                value={fixedAmount}
+                onChange={e => setFixedAmount(e.target.value)}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ fontSize: '0.85rem' }}>매월</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  placeholder="25"
+                  value={fixedDay}
+                  onChange={e => setFixedDay(e.target.value)}
+                  style={{ width: '55px', textAlign: 'center' }}
+                />
+                <span style={{ fontSize: '0.85rem' }}>일</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="small-btn"
+              style={{ alignSelf: 'flex-end', background: '#0071e3', color: '#fff' }}
+              onClick={() => {
+                if (fixedName.trim() && parseMoney(fixedAmount) > 0) {
+                  onAddRecurringFixed({
+                    itemName: fixedName.trim(),
+                    amount: parseMoney(fixedAmount),
+                    day: parseInt(fixedDay) || 1,
+                    category: '고정지출'
+                  })
+                  setFixedName('')
+                  setFixedAmount('')
+                  setShowAddFixed(false)
+                }
+              }}
+            >
+              등록하기
+            </button>
+          </div>
+        )}
+
         <div className="template-list">
-          <span>월세 <b>매월 25일 · 850,000원</b></span>
-          <span>통신비 <b>매월 15일 · 65,000원</b></span>
+          {recurringFixed.length === 0 ? (
+            <div className="empty-cat-box">
+              등록된 반복 고정지출이 없습니다.<br />
+              거래 등록 시 <b>'고정지출'</b>을 등록하거나 여기서 추가하시면 매달 자동으로 반복됩니다.
+            </div>
+          ) : (
+            recurringFixed.map(rf => (
+              <div key={rf.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8f8fc', padding: '0.8rem 1rem', borderRadius: '12px' }}>
+                <div>
+                  <b style={{ fontSize: '0.95rem' }}>{rf.itemName}</b>
+                  <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.8rem' }}>
+                    매월 {rf.day}일 · <span className="text-expense font-bold">-{rf.amount.toLocaleString()}원</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  title="삭제"
+                  onClick={() => {
+                    if (confirm(`'${rf.itemName}' 고정지출을 삭제하시겠습니까?`)) {
+                      onDeleteRecurringFixed(rf.id)
+                    }
+                  }}
+                  style={{ border: 'none', background: 'none', color: '#8e8e93', cursor: 'pointer', padding: '6px' }}
+                >
+                  <Trash2 style={{ width: '1.1rem', height: '1.1rem' }} />
+                </button>
+              </div>
+            ))
+          )}
         </div>
       </section>
     </>
