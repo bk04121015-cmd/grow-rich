@@ -122,11 +122,11 @@ function AuthScreen({ onLogin }: { onLogin: (phone: string) => void }) {
     <main className="auth-shell">
       <div className="auth-mark">
         <div className="brand-icon"><Wallet /></div>
-        <span>소비노트</span>
+        <span>사명가의 소비노트</span>
       </div>
       <section className="auth-card">
         <p className="eyebrow">나의 돈을 돌보는 가장 쉬운 방법</p>
-        <h1>소비노트에 오신 것을 환영해요</h1>
+        <h1>사명가의 소비노트에 오신 것을 환영해요</h1>
         <p className="muted">핸드폰 번호로 간편하게 시작하세요.</p>
         <form onSubmit={submit} className="form-stack">
           <label>핸드폰 번호
@@ -412,7 +412,7 @@ export default function Page() {
       <aside className={mobileNav ? 'sidebar open' : 'sidebar'}>
         <div className="brand">
           <div className="brand-icon"><Wallet /></div>
-          <span>소비노트</span>
+          <span>사명가의 소비노트</span>
         </div>
         <nav>
           {nav.map(n => (
@@ -1960,7 +1960,7 @@ function SettingsView({
         <div>
           <p className="eyebrow">PREFERENCES</p>
           <h2>설정</h2>
-          <p className="muted">나에게 맞는 소비노트로 다듬어보세요.</p>
+          <p className="muted">나에게 맞는 사명가의 소비노트로 다듬어보세요.</p>
         </div>
       </div>
 

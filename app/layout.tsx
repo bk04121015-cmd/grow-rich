@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: '살림노트 | 나의 개인 가계부',
+  title: '사명가의 소비노트 | 나의 개인 가계부',
   description: '수입과 지출, 예산을 한눈에 관리하는 한국어 개인 가계부',
   generator: 'v0.app',
   icons: {
@@ -44,7 +44,7 @@ export default function RootLayout({
         <link rel="manifest" href="/manifest.json" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="소비노트" />
+        <meta name="apple-mobile-web-app-title" content="사명가의 소비노트" />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="antialiased">
