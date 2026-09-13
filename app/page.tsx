@@ -1406,18 +1406,24 @@ function CalendarDayTxList({ tx, maxVisible, onEdit }: { tx: Transaction[]; maxV
 
   return (
     <div className="cal-tx-list" onClick={e => e.stopPropagation()}>
-      {visible.map(t => (
-        <div
-          key={t.id}
-          className={`cal-tx-row ${t.type === 'income' ? 'cal-tx-income' : t.type === 'saving' ? 'cal-tx-saving' : 'cal-tx-expense'}`}
-          onClick={e => { e.stopPropagation(); onEdit(t) }}
-        >
-          <span className="cal-tx-name">{t.itemName}</span>
-          <span className="cal-tx-amount">
-            {t.type === 'income' ? '+' : '-'}{t.amount >= 10000 ? `${(t.amount / 10000).toFixed(t.amount % 10000 === 0 ? 0 : 1)}만` : `${Math.round(t.amount / 1000)}천`}
-          </span>
-        </div>
-      ))}
+      {visible.map(t => {
+        const formattedAmount = t.amount >= 10000
+          ? `${(t.amount / 10000).toFixed(t.amount % 10000 === 0 ? 0 : 1)}만`
+          : `${Math.round(t.amount / 1000)}천`
+        return (
+          <div
+            key={t.id}
+            className={`cal-tx-row ${t.type === 'income' ? 'cal-tx-income' : t.type === 'saving' ? 'cal-tx-saving' : 'cal-tx-expense'}`}
+            onClick={e => { e.stopPropagation(); onEdit(t) }}
+            title={`${t.itemName} (${t.amount.toLocaleString()}원)`}
+          >
+            <span className="cal-tx-amount">
+              {t.type === 'income' ? '+' : '-'}{formattedAmount}
+            </span>
+            <span className="cal-tx-name">{t.itemName}</span>
+          </div>
+        )
+      })}
       {hasMore && (
         <button
           className="cal-tx-more"
