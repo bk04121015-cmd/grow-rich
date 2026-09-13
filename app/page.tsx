@@ -1312,6 +1312,37 @@ function CalendarPage({ data, month, changeMonth, onAdd, onEdit }: { data: Month
   )
 }
 
+function CalendarDayTxList({ tx, maxVisible, onEdit }: { tx: Transaction[]; maxVisible: number; onEdit: (t: Transaction) => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? tx : tx.slice(0, maxVisible)
+  const hasMore = tx.length > maxVisible
+
+  return (
+    <div className="cal-tx-list" onClick={e => e.stopPropagation()}>
+      {visible.map(t => (
+        <div
+          key={t.id}
+          className={`cal-tx-row ${t.type === 'income' ? 'cal-tx-income' : t.type === 'saving' ? 'cal-tx-saving' : 'cal-tx-expense'}`}
+          onClick={e => { e.stopPropagation(); onEdit(t) }}
+        >
+          <span className="cal-tx-name">{t.itemName}</span>
+          <span className="cal-tx-amount">
+            {t.type === 'income' ? '+' : '-'}{t.amount >= 10000 ? `${(t.amount / 10000).toFixed(t.amount % 10000 === 0 ? 0 : 1)}만` : `${Math.round(t.amount / 1000)}천`}
+          </span>
+        </div>
+      ))}
+      {hasMore && (
+        <button
+          className="cal-tx-more"
+          onClick={e => { e.stopPropagation(); setExpanded(v => !v) }}
+        >
+          {expanded ? '▲ 접기' : `▼ +${tx.length - maxVisible}건 더보기`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function SpendingCalendar({ data, month, onAdd, onEdit }: { data: MonthlyData; month: string; onAdd: (dateStr?: string) => void; onEdit: (t: Transaction) => void }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [year, mon] = month.split('-').map(Number)
@@ -1347,16 +1378,15 @@ function SpendingCalendar({ data, month, onAdd, onEdit }: { data: MonthlyData; m
 
       <div className="calendar-grid">
         {cells.map((day, i) => {
-          if (!day) return <div key={i} className="calendar-day" style={{ opacity: 0, pointerEvents: 'none' }} />
+          if (!day) return <div key={i} className="calendar-day cal-empty" />
           const dateKey = `${month}-${String(day).padStart(2, '0')}`
           const tx = data.transactions.filter(t => t.date === dateKey)
-          const income = tx.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0)
-          const expense = tx.filter(t => t.type !== 'income').reduce((a, t) => a + t.amount, 0)
           const isToday = dateKey === todayStr
           const isSelected = selected === dateKey
+          const MAX_VISIBLE = 3
 
           return (
-            <button
+            <div
               key={i}
               className={`calendar-day ${isSelected ? 'selected' : ''} ${isToday ? 'is-today' : ''}`}
               onClick={() => setSelected(dateKey)}
@@ -1364,19 +1394,10 @@ function SpendingCalendar({ data, month, onAdd, onEdit }: { data: MonthlyData; m
               <div className="calendar-day-header">
                 <span>{day}</span>
               </div>
-              <div className="calendar-amounts">
-                {income > 0 && (
-                  <span className="calendar-badge income-badge">
-                    +{income >= 10000 ? `${(income / 10000).toFixed(income % 10000 === 0 ? 0 : 1)}만` : `${Math.round(income / 1000)}천`}
-                  </span>
-                )}
-                {expense > 0 && (
-                  <span className="calendar-badge expense-badge">
-                    -{expense >= 10000 ? `${(expense / 10000).toFixed(expense % 10000 === 0 ? 0 : 1)}만` : `${Math.round(expense / 1000)}천`}
-                  </span>
-                )}
-              </div>
-            </button>
+              {tx.length > 0 && (
+                <CalendarDayTxList tx={tx} maxVisible={MAX_VISIBLE} onEdit={onEdit} />
+              )}
+            </div>
           )
         })}
       </div>
