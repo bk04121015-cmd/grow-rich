@@ -1125,6 +1125,7 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
 
             return (
               <div key={week.key} className="weekly-card">
+                {/* 주차 헤더 */}
                 <div className="weekly-card-header">
                   <h3 className="weekly-card-title">{week.label}</h3>
                   <div className="weekly-summary-badges">
@@ -1134,25 +1135,129 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                   </div>
                 </div>
 
-                {weekTx.length > 0 ? (
-                  <div className="weekly-tx-list">
-                    {weekTx
-                      .slice()
-                      .sort((a, b) => a.date.localeCompare(b.date))
-                      .map(t => (
-                        <div key={t.id} className="weekly-tx-item" onClick={() => onEdit(t)}>
-                          <span className="weekly-tx-date">{t.date.slice(5).replace('-', '/')}</span>
-                          <span className="weekly-tx-name">{t.itemName}</span>
-                          <span className="weekly-tx-cat muted">{typeLabel[t.type]}</span>
-                          <span className={`weekly-tx-amount ${t.type === 'income' ? 'text-income' : t.type === 'saving' ? 'text-primary' : 'text-expense'}`}>
-                            {t.type === 'income' ? '+' : '-'}{t.amount.toLocaleString()}원
-                          </span>
-                        </div>
-                      ))}
+                {/* 수입 / 저축 / 고정지출 테이블 */}
+                <div className="excel-top-grid weekly-top-grid">
+                  {/* 수입 */}
+                  <div className="excel-table-container">
+                    <div className="table-header-title text-income-bg">수입</div>
+                    <div className="table-scroll-y">
+                      <table className="excel-table">
+                        <thead><tr><th style={{ width: '50px' }}>날짜</th><th>내용</th><th style={{ width: '90px' }}>금액</th></tr></thead>
+                        <tbody>
+                          {weekTx.filter(t => t.type === 'income').map(t => (
+                            <tr key={t.id} onClick={() => onEdit(t)}>
+                              <td className="text-center">{t.date.slice(8)}일</td>
+                              <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
+                              <td className="text-right text-income">+{t.amount.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                          {Array.from({ length: Math.max(0, 3 - weekTx.filter(t => t.type === 'income').length) }).map((_, i) => (
+                            <tr key={`wi-${i}`} onClick={() => onAddWithDefault('income', '수입')} className="empty-tr">
+                              <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                            </tr>
+                          ))}
+                          <tr className="sum-row">
+                            <td colSpan={2}>합계</td>
+                            <td className="text-right text-income font-bold">+{weekIncome.toLocaleString()}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                ) : (
-                  <p className="weekly-empty">이 주에 기록된 거래가 없어요.</p>
-                )}
+                  {/* 저축 */}
+                  <div className="excel-table-container">
+                    <div className="table-header-title text-saving-bg">저축</div>
+                    <div className="table-scroll-y">
+                      <table className="excel-table">
+                        <thead><tr><th style={{ width: '50px' }}>날짜</th><th>내용</th><th style={{ width: '90px' }}>금액</th></tr></thead>
+                        <tbody>
+                          {weekTx.filter(t => t.type === 'saving').map(t => (
+                            <tr key={t.id} onClick={() => onEdit(t)}>
+                              <td className="text-center">{t.date.slice(8)}일</td>
+                              <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
+                              <td className="text-right text-primary">-{t.amount.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                          {Array.from({ length: Math.max(0, 3 - weekTx.filter(t => t.type === 'saving').length) }).map((_, i) => (
+                            <tr key={`ws-${i}`} onClick={() => onAddWithDefault('saving', '저축')} className="empty-tr">
+                              <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                            </tr>
+                          ))}
+                          <tr className="sum-row">
+                            <td colSpan={2}>합계</td>
+                            <td className="text-right text-primary font-bold">-{weekSaving.toLocaleString()}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  {/* 고정지출 */}
+                  <div className="excel-table-container">
+                    <div className="table-header-title text-fixed-bg">고정지출</div>
+                    <div className="table-scroll-y">
+                      <table className="excel-table">
+                        <thead><tr><th style={{ width: '50px' }}>날짜</th><th>내용</th><th style={{ width: '90px' }}>금액</th></tr></thead>
+                        <tbody>
+                          {weekTx.filter(t => t.type === 'fixed_expense').map(t => (
+                            <tr key={t.id} onClick={() => onEdit(t)}>
+                              <td className="text-center">{t.date.slice(8)}일</td>
+                              <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
+                              <td className="text-right text-expense">-{t.amount.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                          {Array.from({ length: Math.max(0, 3 - weekTx.filter(t => t.type === 'fixed_expense').length) }).map((_, i) => (
+                            <tr key={`wf-${i}`} onClick={() => onAddWithDefault('fixed_expense', '고정지출')} className="empty-tr">
+                              <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                            </tr>
+                          ))}
+                          <tr className="sum-row">
+                            <td colSpan={2}>합계</td>
+                            <td className="text-right text-expense font-bold">-{weekTx.filter(t => t.type === 'fixed_expense').reduce((a, b) => a + b.amount, 0).toLocaleString()}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 변동지출 카테고리 그리드 */}
+                <div className="excel-bottom-section">
+                  <h4 className="section-title" style={{ fontSize: '0.9rem', margin: '0.75rem 0 0.5rem' }}>변동지출 (생활비 지출)</h4>
+                  <div className="excel-bottom-grid">
+                    {cats.map(cat => {
+                      const catItems = weekTx.filter(t => (t.type === 'variable_expense' || t.type === 'loan_payment') && t.category === cat)
+                      const catSum = catItems.reduce((a, b) => a + b.amount, 0)
+                      return (
+                        <div key={cat} className="excel-table-container variable-cat-table">
+                          <div className="table-header-title cat-title">
+                            <span>{cat}</span>
+                            <small className="font-bold">{catSum.toLocaleString()}원</small>
+                          </div>
+                          <div className="table-scroll-y font-small-table">
+                            <table className="excel-table">
+                              <thead><tr><th style={{ width: '40px' }}>날짜</th><th>내용</th><th style={{ width: '75px' }}>금액</th></tr></thead>
+                              <tbody>
+                                {catItems.map(t => (
+                                  <tr key={t.id} onClick={() => onEdit(t)}>
+                                    <td className="text-center">{t.date.slice(8)}일</td>
+                                    <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
+                                    <td className="text-right">-{t.amount.toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                                {Array.from({ length: Math.max(0, 5 - catItems.length) }).map((_, i) => (
+                                  <tr key={`wv-${cat}-${i}`} onClick={() => onAddWithDefault('variable_expense', cat)} className="empty-tr">
+                                    <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
 
                 <div className="weekly-feedback">
                   <div className="weekly-feedback-row">
