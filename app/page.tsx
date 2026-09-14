@@ -274,15 +274,42 @@ export default function Page() {
     persistCatGroups({ ...catGroups, expense: nextExpense })
   }
 
+  const sanitizeData = (raw: any): MonthlyData => ({
+    expectedIncome: Number(raw?.expectedIncome) || 0,
+    budgets: Array.isArray(raw?.budgets) ? raw.budgets : [],
+    transactions: Array.isArray(raw?.transactions) ? raw.transactions : [],
+    savingGoal: raw?.savingGoal || '',
+    praisePoints: raw?.praisePoints || '',
+    reflectionPoints: raw?.reflectionPoints || '',
+    wishList: raw?.wishList || '',
+    consumptionGoal: raw?.consumptionGoal || '',
+    weeklyFeedback: raw?.weeklyFeedback || {}
+  })
+
   const loadUserData = async (phone: string) => {
     // 1. First load from local storage for instant responsiveness
     const savedData = localStorage.getItem(`sobinote-data-${phone}`)
-    if (savedData) setData(JSON.parse(savedData))
-    else setData({ transactions: [], budgets: [], expectedIncome: 0 })
+    if (savedData) {
+      try {
+        setData(sanitizeData(JSON.parse(savedData)))
+      } catch {
+        setData({ transactions: [], budgets: [], expectedIncome: 0 })
+      }
+    } else {
+      setData({ transactions: [], budgets: [], expectedIncome: 0 })
+    }
 
     const savedAccounts = localStorage.getItem(`sobinote-accounts-${phone}`)
-    if (savedAccounts) setAccounts(JSON.parse(savedAccounts))
-    else setAccounts([])
+    if (savedAccounts) {
+      try {
+        const parsed = JSON.parse(savedAccounts)
+        setAccounts(Array.isArray(parsed) ? parsed : [])
+      } catch {
+        setAccounts([])
+      }
+    } else {
+      setAccounts([])
+    }
 
     const savedCatGroups = localStorage.getItem(`sobinote-cat-groups-${phone}`)
     if (savedCatGroups) {
@@ -307,7 +334,8 @@ export default function Page() {
     const savedRecurring = localStorage.getItem(`sobinote-recurring-fixed-${phone}`)
     if (savedRecurring) {
       try {
-        setRecurringFixed(JSON.parse(savedRecurring))
+        const parsed = JSON.parse(savedRecurring)
+        setRecurringFixed(Array.isArray(parsed) ? parsed : [])
       } catch {
         setRecurringFixed([])
       }
@@ -328,12 +356,14 @@ export default function Page() {
       ])
 
       if (cloudData) {
-        setData(cloudData)
-        localStorage.setItem(`sobinote-data-${phone}`, JSON.stringify(cloudData))
+        const clean = sanitizeData(cloudData)
+        setData(clean)
+        localStorage.setItem(`sobinote-data-${phone}`, JSON.stringify(clean))
       }
       if (cloudAccounts) {
-        setAccounts(cloudAccounts)
-        localStorage.setItem(`sobinote-accounts-${phone}`, JSON.stringify(cloudAccounts))
+        const cleanAccounts = Array.isArray(cloudAccounts) ? cloudAccounts : []
+        setAccounts(cleanAccounts)
+        localStorage.setItem(`sobinote-accounts-${phone}`, JSON.stringify(cleanAccounts))
       }
       if (cloudProfile) {
         if (cloudProfile.name) setUserName(cloudProfile.name)
@@ -345,7 +375,7 @@ export default function Page() {
           setCatGroups(cloudSettings.catGroups)
           localStorage.setItem(`sobinote-cat-groups-${phone}`, JSON.stringify(cloudSettings.catGroups))
         }
-        if (cloudSettings.recurringFixed) {
+        if (cloudSettings.recurringFixed && Array.isArray(cloudSettings.recurringFixed)) {
           setRecurringFixed(cloudSettings.recurringFixed)
           localStorage.setItem(`sobinote-recurring-fixed-${phone}`, JSON.stringify(cloudSettings.recurringFixed))
         }
@@ -370,24 +400,26 @@ export default function Page() {
   }, [])
 
   const persist = (next: MonthlyData) => {
-    setData(next)
+    const clean = sanitizeData(next)
+    setData(clean)
     if (currentUser) {
-      localStorage.setItem(`sobinote-data-${currentUser}`, JSON.stringify(next))
-      saveUserDataToFirestore(currentUser, next)
+      localStorage.setItem(`sobinote-data-${currentUser}`, JSON.stringify(clean))
+      saveUserDataToFirestore(currentUser, clean)
     }
   }
 
   const persistAccounts = (next: Account[]) => {
-    setAccounts(next)
+    const clean = Array.isArray(next) ? next : []
+    setAccounts(clean)
     if (currentUser) {
-      localStorage.setItem(`sobinote-accounts-${currentUser}`, JSON.stringify(next))
-      saveAccountsToFirestore(currentUser, next)
+      localStorage.setItem(`sobinote-accounts-${currentUser}`, JSON.stringify(clean))
+      saveAccountsToFirestore(currentUser, clean)
     }
   }
 
   const totals = useMemo(() => {
-    const tx = data.transactions
-    const sum = (t: TransactionType) => tx.filter(x => x.type === t).reduce((a, x) => a + x.amount, 0)
+    const tx = Array.isArray(data?.transactions) ? data.transactions : []
+    const sum = (t: TransactionType) => tx.filter(x => x.type === t).reduce((a, x) => a + (Number(x.amount) || 0), 0)
     return {
       income: sum('income'),
       fixed: sum('fixed_expense'),
@@ -397,12 +429,15 @@ export default function Page() {
     }
   }, [data])
 
-  const budgetTotals = useMemo(() => ({
-    fixed: data.budgets.filter(x => x.section === 'fixed').reduce((a, x) => a + x.amount, 0),
-    variable: data.budgets.filter(x => x.section === 'variable').reduce((a, x) => a + x.amount, 0),
-    saving: data.budgets.filter(x => x.section === 'saving').reduce((a, x) => a + x.amount, 0),
-    loan: data.budgets.filter(x => x.section === 'loan').reduce((a, x) => a + x.amount, 0)
-  }), [data])
+  const budgetTotals = useMemo(() => {
+    const b = Array.isArray(data?.budgets) ? data.budgets : []
+    return {
+      fixed: b.filter(x => x.section === 'fixed').reduce((a, x) => a + (Number(x.amount) || 0), 0),
+      variable: b.filter(x => x.section === 'variable').reduce((a, x) => a + (Number(x.amount) || 0), 0),
+      saving: b.filter(x => x.section === 'saving').reduce((a, x) => a + (Number(x.amount) || 0), 0),
+      loan: b.filter(x => x.section === 'loan').reduce((a, x) => a + (Number(x.amount) || 0), 0)
+    }
+  }, [data])
 
   const changeMonth = (n: number) => {
     const d = new Date(`${month}-01`)
