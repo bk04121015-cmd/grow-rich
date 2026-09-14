@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, getDocs, setDoc, Timestamp } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, setDoc, Timestamp } from 'firebase/firestore'
 import { db } from './firebase'
 
 export type TransactionType = 'income' | 'fixed_expense' | 'variable_expense' | 'saving' | 'loan_payment'
@@ -54,9 +54,8 @@ export const collectionPath = (uid: string, name: string) => collection(db!, 'us
 export async function getUserProfile(phone: string): Promise<{ password?: string; name?: string } | null> {
   if (!db) return null
   try {
-    const snap = await getDocs(collection(db, 'userAccounts'))
-    const found = snap.docs.find(d => d.id === phone)
-    return found ? (found.data() as { password?: string; name?: string }) : null
+    const snap = await getDoc(doc(db, 'userAccounts', phone))
+    return snap.exists() ? (snap.data() as { password?: string; name?: string }) : null
   } catch (err) {
     console.error('Failed to get user profile from Firestore:', err)
     return null
@@ -75,9 +74,8 @@ export async function saveUserProfile(phone: string, profile: { password?: strin
 export async function loadUserDataFromFirestore(phone: string): Promise<MonthlyData | null> {
   if (!db) return null
   try {
-    const snap = await getDocs(collection(db, 'userData'))
-    const found = snap.docs.find(d => d.id === phone)
-    return found ? (found.data() as MonthlyData) : null
+    const snap = await getDoc(doc(db, 'userData', phone))
+    return snap.exists() ? (snap.data() as MonthlyData) : null
   } catch (err) {
     console.error('Failed to load user data from Firestore:', err)
     return null
@@ -96,9 +94,8 @@ export async function saveUserDataToFirestore(phone: string, data: MonthlyData) 
 export async function loadAccountsFromFirestore(phone: string): Promise<Account[] | null> {
   if (!db) return null
   try {
-    const snap = await getDocs(collection(db, 'userBankAccounts'))
-    const found = snap.docs.find(d => d.id === phone)
-    return found ? ((found.data() as { accounts: Account[] }).accounts || []) : null
+    const snap = await getDoc(doc(db, 'userBankAccounts', phone))
+    return snap.exists() ? ((snap.data() as { accounts: Account[] }).accounts || []) : null
   } catch (err) {
     console.error('Failed to load accounts from Firestore:', err)
     return null
@@ -111,6 +108,26 @@ export async function saveAccountsToFirestore(phone: string, accounts: Account[]
     await setDoc(doc(db, 'userBankAccounts', phone), { accounts }, { merge: true })
   } catch (err) {
     console.error('Failed to save accounts to Firestore:', err)
+  }
+}
+
+export async function loadUserSettingsFromFirestore(phone: string): Promise<{ catGroups?: CategoryGroups; recurringFixed?: RecurringFixedExpense[] } | null> {
+  if (!db) return null
+  try {
+    const snap = await getDoc(doc(db, 'userSettings', phone))
+    return snap.exists() ? (snap.data() as { catGroups?: CategoryGroups; recurringFixed?: RecurringFixedExpense[] }) : null
+  } catch (err) {
+    console.error('Failed to load user settings from Firestore:', err)
+    return null
+  }
+}
+
+export async function saveUserSettingsToFirestore(phone: string, settings: { catGroups?: CategoryGroups; recurringFixed?: RecurringFixedExpense[] }) {
+  if (!db) return
+  try {
+    await setDoc(doc(db, 'userSettings', phone), settings, { merge: true })
+  } catch (err) {
+    console.error('Failed to save user settings to Firestore:', err)
   }
 }
 

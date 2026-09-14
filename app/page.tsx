@@ -22,7 +22,9 @@ import {
   loadUserDataFromFirestore,
   saveUserDataToFirestore,
   loadAccountsFromFirestore,
-  saveAccountsToFirestore
+  saveAccountsToFirestore,
+  loadUserSettingsFromFirestore,
+  saveUserSettingsToFirestore
 } from '@/lib/firestore'
 
 type Page = 'dashboard' | 'calendar' | 'budget' | 'transactions' | 'accounts' | 'annual' | 'settings'
@@ -256,6 +258,7 @@ export default function Page() {
     setCatGroups(next)
     if (currentUser) {
       localStorage.setItem(`sobinote-cat-groups-${currentUser}`, JSON.stringify(next))
+      saveUserSettingsToFirestore(currentUser, { catGroups: next, recurringFixed })
     }
   }
 
@@ -263,6 +266,7 @@ export default function Page() {
     setRecurringFixed(next)
     if (currentUser) {
       localStorage.setItem(`sobinote-recurring-fixed-${currentUser}`, JSON.stringify(next))
+      saveUserSettingsToFirestore(currentUser, { catGroups, recurringFixed: next })
     }
   }
 
@@ -316,10 +320,11 @@ export default function Page() {
 
     // 2. Fetch from Firestore to sync latest across devices
     try {
-      const [cloudData, cloudAccounts, cloudProfile] = await Promise.all([
+      const [cloudData, cloudAccounts, cloudProfile, cloudSettings] = await Promise.all([
         loadUserDataFromFirestore(phone),
         loadAccountsFromFirestore(phone),
-        getUserProfile(phone)
+        getUserProfile(phone),
+        loadUserSettingsFromFirestore(phone)
       ])
 
       if (cloudData) {
@@ -334,6 +339,16 @@ export default function Page() {
         if (cloudProfile.name) setUserName(cloudProfile.name)
         users[phone] = { ...users[phone], ...cloudProfile }
         localStorage.setItem('sobinote-users', JSON.stringify(users))
+      }
+      if (cloudSettings) {
+        if (cloudSettings.catGroups) {
+          setCatGroups(cloudSettings.catGroups)
+          localStorage.setItem(`sobinote-cat-groups-${phone}`, JSON.stringify(cloudSettings.catGroups))
+        }
+        if (cloudSettings.recurringFixed) {
+          setRecurringFixed(cloudSettings.recurringFixed)
+          localStorage.setItem(`sobinote-recurring-fixed-${phone}`, JSON.stringify(cloudSettings.recurringFixed))
+        }
       }
     } catch (e) {
       console.error('Cloud sync error on load:', e)
@@ -404,8 +419,6 @@ export default function Page() {
     { id: 'annual', label: '연간 결산', icon: BarChart3 },
     { id: 'settings', label: '설정', icon: Settings }
   ] as const
-
-  if (!currentUser) return <AuthScreen onLogin={(phone) => { setCurrentUser(phone); loadUserData(phone) }} />
 
   // 매달 반복되는 고정지출을 현재 월의 거래 목록에 자동 동기화
   useEffect(() => {
@@ -586,6 +599,10 @@ export default function Page() {
         return a
       })
     )
+  }
+
+  if (!currentUser) {
+    return <AuthScreen onLogin={(phone) => { setCurrentUser(phone); loadUserData(phone) }} />
   }
 
   return (
