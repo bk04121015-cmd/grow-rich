@@ -449,7 +449,7 @@ export default function Page() {
     { id: 'dashboard', label: '대시보드', icon: Home },
     { id: 'calendar', label: '소비달력', icon: CalendarCheck },
     { id: 'budget', label: '이번 달 예산', icon: Target },
-    { id: 'transactions', label: '거래 기록', icon: CalendarDays },
+    { id: 'transactions', label: '편한 가계부', icon: CalendarDays },
     { id: 'accounts', label: '계좌 관리', icon: Landmark },
     { id: 'annual', label: '연간 결산', icon: BarChart3 },
     { id: 'settings', label: '설정', icon: Settings }
@@ -1181,9 +1181,7 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
     <>
       <div className="hero-row">
         <div>
-          <p className="eyebrow">DAILY RECORD</p>
-          <h2>편한 가계부</h2>
-          <p className="muted">한눈에 거래를 확인하고 하단에 월말 피드백을 기록하세요.</p>
+          <p className="muted" style={{ margin: 0 }}>한눈에 거래를 확인하고 하단에 월말 피드백을 기록하세요.</p>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
           <div className="view-mode-toggle">
