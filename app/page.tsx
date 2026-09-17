@@ -1133,6 +1133,18 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
   const fixedList = monthTransactions.filter(t => t.type === 'fixed_expense')
   const variableList = monthTransactions.filter(t => t.type === 'variable_expense' || t.type === 'loan_payment')
 
+  // cats(지출 5대 카테고리) 외에 '카테고리 없음', 대출상환, 기타 등으로 등록된 모든 항목도 누락 없이 표시
+  const allVariableCats = useMemo(() => {
+    const list = [...cats]
+    variableList.forEach(t => {
+      const c = t.category && t.category !== '카테고리 없음' ? t.category : '기타/미분류'
+      if (!list.includes(c)) {
+        list.push(c)
+      }
+    })
+    return list
+  }, [cats, variableList])
+
   const totalIncome = incomeList.reduce((a, b) => a + b.amount, 0)
   const totalSaving = savingList.reduce((a, b) => a + b.amount, 0)
   const totalFixed = fixedList.reduce((a, b) => a + b.amount, 0)
@@ -1181,6 +1193,8 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
     <>
       <div className="hero-row">
         <div>
+          <p className="eyebrow">DAILY RECORD</p>
+          <h2>편한 가계부</h2>
           <p className="muted" style={{ margin: 0 }}>한눈에 거래를 확인하고 하단에 월말 피드백을 기록하세요.</p>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
@@ -1353,8 +1367,11 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
               <div className="excel-bottom-section">
                 <h3 className="section-title">변동지출 (생활비 지출)</h3>
                 <div className="excel-bottom-grid">
-                  {cats.map(cat => {
-                    const catItems = variableList.filter(t => t.category === cat)
+                  {allVariableCats.map(cat => {
+                    const catItems = variableList.filter(t => {
+                      const c = t.category && t.category !== '카테고리 없음' ? t.category : '기타/미분류'
+                      return c === cat
+                    })
                     const catSum = catItems.reduce((a, b) => a + b.amount, 0)
                     return (
                       <div key={cat} className="excel-table-container variable-cat-table">
@@ -1380,7 +1397,7 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                                 </tr>
                               ))}
                               {Array.from({ length: Math.max(0, 10 - catItems.length) }).map((_, i) => (
-                                <tr key={`empty-var-${cat}-${i}`} onClick={() => onAddWithDefault('variable_expense', cat)} className="empty-tr">
+                                <tr key={`empty-var-${cat}-${i}`} onClick={() => onAddWithDefault('variable_expense', cat === '기타/미분류' ? undefined : cat)} className="empty-tr">
                                   <td>&nbsp;</td>
                                   <td>&nbsp;</td>
                                   <td>&nbsp;</td>
@@ -1553,8 +1570,12 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                 <div className="excel-bottom-section">
                   <h4 className="section-title" style={{ fontSize: '0.9rem', margin: '0.75rem 0 0.5rem' }}>변동지출 (생활비 지출)</h4>
                   <div className="excel-bottom-grid">
-                    {cats.map(cat => {
-                      const catItems = weekTx.filter(t => (t.type === 'variable_expense' || t.type === 'loan_payment') && t.category === cat)
+                    {allVariableCats.map(cat => {
+                      const catItems = weekTx.filter(t => {
+                        if (t.type !== 'variable_expense' && t.type !== 'loan_payment') return false
+                        const c = t.category && t.category !== '카테고리 없음' ? t.category : '기타/미분류'
+                        return c === cat
+                      })
                       const catSum = catItems.reduce((a, b) => a + b.amount, 0)
                       return (
                         <div key={cat} className="excel-table-container variable-cat-table">
@@ -1574,7 +1595,7 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                                   </tr>
                                 ))}
                                 {Array.from({ length: Math.max(0, 5 - catItems.length) }).map((_, i) => (
-                                  <tr key={`wv-${cat}-${i}`} onClick={() => onAddWithDefault('variable_expense', cat)} className="empty-tr">
+                                  <tr key={`wv-${cat}-${i}`} onClick={() => onAddWithDefault('variable_expense', cat === '기타/미분류' ? undefined : cat)} className="empty-tr">
                                     <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
                                   </tr>
                                 ))}
@@ -1707,7 +1728,10 @@ function SpendingCalendar({ data, month, onAdd, onEdit }: { data: MonthlyData; m
           <p className="eyebrow">SPENDING CALENDAR</p>
           <h3>소비달력</h3>
         </div>
-        <button className="small-btn" onClick={() => onAdd(selected || undefined)}>
+        <button className="small-btn" onClick={() => {
+          const fallbackDate = todayStr.startsWith(month) ? todayStr : `${month}-01`
+          onAdd(selected || fallbackDate)
+        }}>
           <Plus /> 기록 추가
         </button>
       </div>
