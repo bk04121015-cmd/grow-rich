@@ -1136,14 +1136,17 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
   // cats(지출 5대 카테고리) 외에 '카테고리 없음', 대출상환, 기타 등으로 등록된 모든 항목도 누락 없이 표시
   const allVariableCats = useMemo(() => {
     const list = [...cats]
-    variableList.forEach(t => {
+    const varTx = (data.transactions || []).filter(
+      (t: Transaction) => t.date.startsWith(month) && (t.type === 'variable_expense' || t.type === 'loan_payment')
+    )
+    varTx.forEach((t: Transaction) => {
       const c = t.category && t.category !== '카테고리 없음' ? t.category : '기타/미분류'
       if (!list.includes(c)) {
         list.push(c)
       }
     })
     return list
-  }, [cats, variableList])
+  }, [cats, data.transactions, month])
 
   const totalIncome = incomeList.reduce((a, b) => a + b.amount, 0)
   const totalSaving = savingList.reduce((a, b) => a + b.amount, 0)
