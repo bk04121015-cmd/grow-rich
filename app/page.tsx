@@ -1382,32 +1382,21 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                           <span>{cat}</span>
                           <small className="font-bold">{catSum.toLocaleString()}원</small>
                         </div>
-                        <div className="table-scroll-y font-small-table">
-                          <table className="excel-table">
-                            <thead>
-                              <tr>
-                                <th style={{ width: '40px' }}>날짜</th>
-                                <th>내용</th>
-                                <th style={{ width: '75px' }}>금액</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {catItems.map(t => (
-                                <tr key={t.id} onClick={() => onEdit(t)}>
-                                  <td className="text-center">{t.date.slice(8)}일</td>
-                                  <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
-                                  <td className="text-right">-{t.amount.toLocaleString()}</td>
-                                </tr>
-                              ))}
-                              {Array.from({ length: Math.max(0, 10 - catItems.length) }).map((_, i) => (
-                                <tr key={`empty-var-${cat}-${i}`} onClick={() => onAddWithDefault('variable_expense', cat === '기타/미분류' ? undefined : cat)} className="empty-tr">
-                                  <td>&nbsp;</td>
-                                  <td>&nbsp;</td>
-                                  <td>&nbsp;</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                        <div className="var-cat-list">
+                          {catItems.map(t => (
+                            <div key={t.id} className="var-cat-row" onClick={() => onEdit(t)}>
+                              <div className="var-cat-main">
+                                <span className="var-cat-item">{t.itemName}</span>
+                                <span className="var-cat-amount">-{t.amount.toLocaleString()}원</span>
+                              </div>
+                              <span className="var-cat-date">{t.date.slice(5).replace('-', '/')}  </span>
+                            </div>
+                          ))}
+                          {catItems.length === 0 && (
+                            <div className="var-cat-empty" onClick={() => onAddWithDefault('variable_expense', cat === '기타/미분류' ? undefined : cat)}>
+                              클릭하여 추가
+                            </div>
+                          )}
                         </div>
                       </div>
                     )
@@ -1586,24 +1575,21 @@ function Transactions({ data, cats, persist, month, changeMonth, onAdd, onEdit }
                             <span>{cat}</span>
                             <small className="font-bold">{catSum.toLocaleString()}원</small>
                           </div>
-                          <div className="table-scroll-y font-small-table">
-                            <table className="excel-table">
-                              <thead><tr><th style={{ width: '40px' }}>날짜</th><th>내용</th><th style={{ width: '75px' }}>금액</th></tr></thead>
-                              <tbody>
-                                {catItems.map(t => (
-                                  <tr key={t.id} onClick={() => onEdit(t)}>
-                                    <td className="text-center">{t.date.slice(8)}일</td>
-                                    <td className="truncate-cell" title={t.itemName}>{t.itemName}</td>
-                                    <td className="text-right">-{t.amount.toLocaleString()}</td>
-                                  </tr>
-                                ))}
-                                {Array.from({ length: Math.max(0, 5 - catItems.length) }).map((_, i) => (
-                                  <tr key={`wv-${cat}-${i}`} onClick={() => onAddWithDefault('variable_expense', cat === '기타/미분류' ? undefined : cat)} className="empty-tr">
-                                    <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                          <div className="var-cat-list">
+                            {catItems.map(t => (
+                              <div key={t.id} className="var-cat-row" onClick={() => onEdit(t)}>
+                                <div className="var-cat-main">
+                                  <span className="var-cat-item">{t.itemName}</span>
+                                  <span className="var-cat-amount">-{t.amount.toLocaleString()}원</span>
+                                </div>
+                                <span className="var-cat-date">{t.date.slice(5).replace('-', '/')}  </span>
+                              </div>
+                            ))}
+                            {catItems.length === 0 && (
+                              <div className="var-cat-empty" onClick={() => onAddWithDefault('variable_expense', cat === '기타/미분류' ? undefined : cat)}>
+                                클릭하여 추가
+                              </div>
+                            )}
                           </div>
                         </div>
                       )
