@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, CreditCard, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, TrendingUp, Wallet, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CreditCard, HelpCircle, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, TrendingUp, Wallet, X } from 'lucide-react'
 import {
   categories as defaultCategories,
   defaultCategoryGroups,
@@ -2328,6 +2328,7 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
   }
 
   const defaultNames = defaultProfitFirstAccounts.map(a => a.name)
+  const [showQA, setShowQA] = useState(false)
 
   return (
     <>
@@ -2341,6 +2342,119 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
         <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.82rem' }}>
           Profit First — 매출에서 수익을 먼저 떼어놓고, 나머지로 운영하세요.
         </p>
+
+        {/* Q&A Accordion Header */}
+        <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid var(--line)' }}>
+          <button
+            onClick={() => setShowQA(!showQA)}
+            className="pf-qa-toggle-btn"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              width: '100%',
+              background: 'none',
+              border: 'none',
+              padding: '0.4rem 0',
+              color: 'var(--primary)',
+              fontWeight: 600,
+              fontSize: '0.88rem',
+              cursor: 'pointer'
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <HelpCircle style={{ width: '1.05rem', height: '1.05rem' }} />
+              자주 묻는 질문 (Q&amp;A 및 가이드)
+            </span>
+            <ChevronDown
+              style={{
+                width: '1.1rem',
+                height: '1.1rem',
+                transform: showQA ? 'rotate(180deg)' : 'none',
+                transition: 'transform 0.2s ease'
+              }}
+            />
+          </button>
+
+          {showQA && (
+            <div className="pf-qa-content" style={{ marginTop: '0.75rem' }}>
+              <div className="pf-qa-item">
+                <h4 className="pf-qa-q">Q1. 수익먼저 시스템이란 무엇이고 각 칸에는 무엇을 적나요?</h4>
+                <div className="pf-qa-a">
+                  <p>
+                    기존 회계 공식인 <strong>매출 - 비용 = 수익</strong>을 뒤집어 <strong>매출 - 수익 = 비용</strong>으로 운영하는 방식입니다. 수입이 발생하면 정해둔 비율대로 수익·세금·보상을 먼저 떼어두고, 남은 돈으로만 회사를 운영(OpEx)하여 강제로 낭비를 줄입니다.
+                  </p>
+                  <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
+                    <li><strong>수입 (Income):</strong> 해당 월에 들어온 총 매출(입금액)</li>
+                    <li><strong>실적:</strong> 각 계좌에 실제로 배분하거나 사용한 실제 금액</li>
+                    <li><strong>목표 배당률 (%):</strong> 수입 대비 이 계좌에 배분하기로 정한 목표 비율</li>
+                    <li><strong>할당금:</strong> <code>수입 × 목표 배당률</code>로 자동 계산되는 목표 배분액</li>
+                    <li><strong>델타 (차이):</strong> <code>할당금 - 실적</code> (남는 금액은 +, 부족하면 -로 자동 계산)</li>
+                    <li><strong>개선 방향:</strong> 델타를 줄이기 위한 다음 달 액션 플랜(메모)</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="pf-qa-item">
+                <h4 className="pf-qa-q">Q2. 개선방향이 나오면 다음 달에 어떤 식으로 수정하나요?</h4>
+                <div className="pf-qa-a">
+                  <p>
+                    예를 들어 운영비용 델타가 <strong>-50만원(초과 지출)</strong>이라면 개선 방향에 &quot;불필요한 정기구독 2건 해지&quot;와 같이 구체적인 행동을 적어둡니다.
+                  </p>
+                  <p style={{ marginTop: '0.3rem' }}>
+                    다음 달을 생성하면 기존 목표 비율이 그대로 복제되므로, <strong>지출을 줄여 실적을 할당금 안으로 맞추는 훈련</strong>을 하거나 목표 배당률을 <strong>매 분기 1~3%씩 완만하게 조정</strong>하여 현실적인 균형을 찾아갑니다.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pf-qa-item">
+                <h4 className="pf-qa-q">Q3. 세금 퍼센트는 어떻게 구하나요? (원칙과 계산법)</h4>
+                <div className="pf-qa-a">
+                  <p>
+                    <strong>원칙:</strong> 세금은 사업주의 돈이 아니므로 종합소득세·부가세·법인세 납부 시점에 자금난을 겪지 않도록 매 입금마다 떼어놓는 원칙입니다.
+                  </p>
+                  <p style={{ marginTop: '0.3rem' }}>
+                    <strong>권장 배분율:</strong>
+                  </p>
+                  <ul style={{ margin: '0.2rem 0 0', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
+                    <li><strong>개인사업자:</strong> 실효세율 기준으로 약 <strong>15% ~ 25%</strong></li>
+                    <li><strong>법인사업자:</strong> 법인세율 기준 약 <strong>10% ~ 20%</strong></li>
+                    <li><strong>처음 시작할 때:</strong> 우선 <strong>15%</strong>로 시작한 뒤 세무사에게 작년 실효세율을 확인해 맞춤 조정하는 것을 권장합니다.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="pf-qa-item">
+                <h4 className="pf-qa-q">Q4. 계좌를 더 추가해도 되나요?</h4>
+                <div className="pf-qa-a">
+                  <p>
+                    <strong>네, 사업 특성에 맞게 언제든 추가할 수 있습니다.</strong>
+                  </p>
+                  <p style={{ marginTop: '0.3rem' }}>
+                    아래의 <strong>[+ 계좌 추가]</strong> 버튼을 눌러 한국 사업장 환경에 꼭 필요한 계좌들을 만들어보세요:
+                  </p>
+                  <ul style={{ margin: '0.2rem 0 0', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
+                    <li><strong>직원 퇴직금 적립:</strong> 매월 직원 급여의 약 8.3%~9% 적립하여 퇴사 시 목돈 충격 방지</li>
+                    <li><strong>직원/선생님 인센티브:</strong> 분기별 성과 보너스 배분 전용 계좌</li>
+                    <li><strong>설비/비품 투자 적립, 대출 원리금 상환 계좌</strong> 등</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="pf-qa-item">
+                <h4 className="pf-qa-q">Q5. 수익먼저 시스템을 도입했을 때의 장점은?</h4>
+                <div className="pf-qa-a">
+                  <ol style={{ margin: '0.2rem 0 0', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
+                    <li><strong>수익이 0원이 되는 일을 원천 차단:</strong> 수익을 가장 먼저 떼어놓으므로 회사가 성장할수록 사업주 수익도 확실히 보장됩니다.</li>
+                    <li><strong>파킨슨의 법칙을 역이용한 지출 절감:</strong> 운영비 통장에 남은 금액 한도 내에서만 지출하게 되므로 불필요한 군더더기 비용이 사라집니다.</li>
+                    <li><strong>세금·퇴직금 폭탄 예방:</strong> 낼 돈이 미리 모여 있어 현금 유동성 위기가 오지 않습니다.</li>
+                    <li><strong>사업주의 심리적 성취감:</strong> 분기마다 모인 수익 계좌의 50%를 소유주 보너스로 온전히 인출하며 사업 동기부여가 극대화됩니다.</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       {months.length === 0 && (
