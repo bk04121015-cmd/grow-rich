@@ -1594,6 +1594,7 @@ tbody td b { color: var(--foreground); font-weight: 700; }
 .pf-table {
   width: 100%;
   min-width: 700px;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 0.85rem;
@@ -1629,6 +1630,15 @@ tbody td b { color: var(--foreground); font-weight: 700; }
 /* 짝수 행 배경 (zebra) */
 .pf-table tbody tr:nth-child(even):not(.pf-income-row):not(.pf-total-row) td {
   background: rgba(0, 0, 0, 0.018);
+}
+.pf-col-left {
+  text-align: left;
+}
+.pf-col-center {
+  text-align: center;
+}
+.pf-text-center {
+  text-align: center;
 }
 .pf-label {
   font-weight: 600;
@@ -1671,9 +1681,11 @@ tbody td b { color: var(--foreground); font-weight: 700; }
   min-width: 100px;
 }
 .pf-percent-wrap {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.25rem;
+  width: 100%;
 }
 .pf-percent-input {
   width: 62px;

@@ -2477,26 +2477,35 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
 
             <div className="pf-table-wrapper">
               <table className="pf-table">
+                <colgroup>
+                  <col style={{ width: '22%' }} />
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '17%' }} />
+                  <col style={{ width: '40px' }} />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th>항목</th>
-                    <th>실적</th>
-                    <th>목표 배당률</th>
-                    <th>할당금</th>
-                    <th>델타</th>
-                    <th>개선 방향</th>
-                    <th></th>
+                    <th className="pf-col-left">항목</th>
+                    <th className="pf-col-center">실적</th>
+                    <th className="pf-col-center">목표 배당률</th>
+                    <th className="pf-col-center">할당금</th>
+                    <th className="pf-col-center">델타</th>
+                    <th className="pf-col-center">개선 방향</th>
+                    <th className="pf-col-center"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {/* 수입 행 */}
                   <tr className="pf-income-row">
                     <td className="pf-label"><strong>수입 (Income)</strong></td>
-                    <td>
+                    <td className="pf-col-center">
                       <input
                         type="text"
                         inputMode="numeric"
-                        className="pf-input"
+                        className="pf-input pf-text-center"
                         value={pfMonth.income ? pfMonth.income.toLocaleString('ko-KR') : ''}
                         placeholder="0"
                         onChange={e => {
@@ -2505,11 +2514,11 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
                         }}
                       />
                     </td>
-                    <td className="pf-muted">—</td>
-                    <td className="pf-muted">—</td>
-                    <td className="pf-muted">—</td>
-                    <td className="pf-muted">—</td>
-                    <td></td>
+                    <td className="pf-muted pf-col-center">—</td>
+                    <td className="pf-muted pf-col-center">—</td>
+                    <td className="pf-muted pf-col-center">—</td>
+                    <td className="pf-muted pf-col-center">—</td>
+                    <td className="pf-col-center"></td>
                   </tr>
 
                   {/* 각 계좌 행 */}
@@ -2526,23 +2535,24 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
                               type="text"
                               className="pf-input pf-name-input"
                               value={acc.name}
+                              placeholder="계좌명 입력"
                               onChange={e => updateAccount(pfMonth.month, acc.id, 'name', e.target.value)}
                             />
                           ) : (
                             acc.name
                           )}
                         </td>
-                        <td>
+                        <td className="pf-col-center">
                           <input
                             type="text"
                             inputMode="numeric"
-                            className="pf-input"
+                            className="pf-input pf-text-center"
                             value={acc.actualAmount ? acc.actualAmount.toLocaleString('ko-KR') : ''}
                             placeholder="0"
                             onChange={e => updateAccount(pfMonth.month, acc.id, 'actualAmount', parseMoney(e.target.value))}
                           />
                         </td>
-                        <td>
+                        <td className="pf-col-center">
                           <div className="pf-percent-wrap">
                             <input
                               type="number"
@@ -2556,11 +2566,11 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
                             <span className="pf-percent-sign">%</span>
                           </div>
                         </td>
-                        <td className="pf-computed">{pfMonth.income > 0 ? money(allocated) : '—'}</td>
-                        <td className={`pf-computed ${delta > 0 ? 'pf-delta-positive' : delta < 0 ? 'pf-delta-negative' : ''}`}>
+                        <td className="pf-computed pf-col-center">{pfMonth.income > 0 ? money(allocated) : '—'}</td>
+                        <td className={`pf-computed pf-col-center ${delta > 0 ? 'pf-delta-positive' : delta < 0 ? 'pf-delta-negative' : ''}`}>
                           {pfMonth.income > 0 && acc.actualAmount > 0 ? (delta >= 0 ? '+' : '') + money(delta) : '—'}
                         </td>
-                        <td>
+                        <td className="pf-col-center">
                           <input
                             type="text"
                             className="pf-input pf-improve-input"
@@ -2569,7 +2579,7 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
                             onChange={e => updateAccount(pfMonth.month, acc.id, 'improvement', e.target.value)}
                           />
                         </td>
-                        <td>
+                        <td className="pf-col-center">
                           {isCustom && (
                             <button
                               className="pf-delete-btn"
@@ -2591,16 +2601,16 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
                   {/* 합계 행 */}
                   <tr className="pf-total-row">
                     <td className="pf-label"><strong>합계</strong></td>
-                    <td className="pf-computed"><strong>{money(totalActual)}</strong></td>
-                    <td className={`pf-computed pf-total-percent ${totalTargetPercent > 100 ? 'pf-over' : totalTargetPercent === 100 ? 'pf-exact' : ''}`}>
+                    <td className="pf-computed pf-col-center"><strong>{money(totalActual)}</strong></td>
+                    <td className={`pf-computed pf-total-percent pf-col-center ${totalTargetPercent > 100 ? 'pf-over' : totalTargetPercent === 100 ? 'pf-exact' : ''}`}>
                       <strong>{totalTargetPercent}%</strong>
                     </td>
-                    <td className="pf-computed"><strong>{pfMonth.income > 0 ? money(totalAllocated) : '—'}</strong></td>
-                    <td className={`pf-computed ${totalDelta > 0 ? 'pf-delta-positive' : totalDelta < 0 ? 'pf-delta-negative' : ''}`}>
+                    <td className="pf-computed pf-col-center"><strong>{pfMonth.income > 0 ? money(totalAllocated) : '—'}</strong></td>
+                    <td className={`pf-computed pf-col-center ${totalDelta > 0 ? 'pf-delta-positive' : totalDelta < 0 ? 'pf-delta-negative' : ''}`}>
                       <strong>{pfMonth.income > 0 && totalActual > 0 ? (totalDelta >= 0 ? '+' : '') + money(totalDelta) : '—'}</strong>
                     </td>
-                    <td className="pf-muted">—</td>
-                    <td></td>
+                    <td className="pf-muted pf-col-center">—</td>
+                    <td className="pf-col-center"></td>
                   </tr>
                 </tbody>
               </table>
