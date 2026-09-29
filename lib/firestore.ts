@@ -23,6 +23,27 @@ export type Account = {
   items: AccountItem[]
 }
 
+export type ProfitFirstAccount = {
+  id: string
+  name: string
+  targetPercent: number
+  actualAmount: number
+  improvement: string
+}
+
+export type ProfitFirstMonth = {
+  month: string
+  income: number
+  accounts: ProfitFirstAccount[]
+}
+
+export const defaultProfitFirstAccounts: Omit<ProfitFirstAccount, 'id'>[] = [
+  { name: '수익 (Profit)', targetPercent: 0, actualAmount: 0, improvement: '' },
+  { name: '소유주 보상 (Owner\'s Comp)', targetPercent: 0, actualAmount: 0, improvement: '' },
+  { name: '세금 (Tax)', targetPercent: 0, actualAmount: 0, improvement: '' },
+  { name: '운영비용 (OpEx)', targetPercent: 0, actualAmount: 0, improvement: '' },
+]
+
 export type MonthlyData = {
   expectedIncome: number;
   budgets: Budget[];
@@ -211,5 +232,25 @@ export const demoAccounts: Account[] = [
     ]
   }
 ]
+
+export async function loadProfitFirstFromFirestore(phone: string): Promise<ProfitFirstMonth[] | null> {
+  if (!db) return null
+  try {
+    const snap = await getDoc(doc(db, 'userProfitFirst', phone))
+    return snap.exists() ? ((snap.data() as { months: ProfitFirstMonth[] }).months || []) : null
+  } catch (err) {
+    console.error('Failed to load Profit First data from Firestore:', err)
+    return null
+  }
+}
+
+export async function saveProfitFirstToFirestore(phone: string, months: ProfitFirstMonth[]) {
+  if (!db) return
+  try {
+    await setDoc(doc(db, 'userProfitFirst', phone), { months }, { merge: true })
+  } catch (err) {
+    console.error('Failed to save Profit First data to Firestore:', err)
+  }
+}
 
 export const noop = addDoc

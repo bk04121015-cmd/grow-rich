@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, CreditCard, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, Wallet, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, CreditCard, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, TrendingUp, Wallet, X } from 'lucide-react'
 import {
   categories as defaultCategories,
   defaultCategoryGroups,
@@ -24,10 +24,15 @@ import {
   loadAccountsFromFirestore,
   saveAccountsToFirestore,
   loadUserSettingsFromFirestore,
-  saveUserSettingsToFirestore
+  saveUserSettingsToFirestore,
+  type ProfitFirstAccount,
+  type ProfitFirstMonth,
+  defaultProfitFirstAccounts,
+  loadProfitFirstFromFirestore,
+  saveProfitFirstToFirestore
 } from '@/lib/firestore'
 
-type Page = 'dashboard' | 'calendar' | 'budget' | 'transactions' | 'accounts' | 'annual' | 'settings'
+type Page = 'dashboard' | 'calendar' | 'budget' | 'transactions' | 'accounts' | 'annual' | 'profit_first' | 'settings'
 
 const typeLabel: Record<TransactionType, string> = {
   income: '수입',
@@ -253,6 +258,15 @@ export default function Page() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [itemModalAccount, setItemModalAccount] = useState<Account | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
+  const [profitFirstMonths, setProfitFirstMonths] = useState<ProfitFirstMonth[]>([])
+
+  const persistProfitFirst = (next: ProfitFirstMonth[]) => {
+    setProfitFirstMonths(next)
+    if (currentUser) {
+      localStorage.setItem(`sobinote-profitfirst-${currentUser}`, JSON.stringify(next))
+      saveProfitFirstToFirestore(currentUser, next)
+    }
+  }
 
   const persistCatGroups = (next: CategoryGroups) => {
     setCatGroups(next)
@@ -343,16 +357,29 @@ export default function Page() {
       setRecurringFixed([])
     }
 
+    const savedProfitFirst = localStorage.getItem(`sobinote-profitfirst-${phone}`)
+    if (savedProfitFirst) {
+      try {
+        const parsed = JSON.parse(savedProfitFirst)
+        setProfitFirstMonths(Array.isArray(parsed) ? parsed : [])
+      } catch {
+        setProfitFirstMonths([])
+      }
+    } else {
+      setProfitFirstMonths([])
+    }
+
     const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
     setUserName(users[phone]?.name || '')
 
     // 2. Fetch from Firestore to sync latest across devices
     try {
-      const [cloudData, cloudAccounts, cloudProfile, cloudSettings] = await Promise.all([
+      const [cloudData, cloudAccounts, cloudProfile, cloudSettings, cloudProfitFirst] = await Promise.all([
         loadUserDataFromFirestore(phone),
         loadAccountsFromFirestore(phone),
         getUserProfile(phone),
-        loadUserSettingsFromFirestore(phone)
+        loadUserSettingsFromFirestore(phone),
+        loadProfitFirstFromFirestore(phone)
       ])
 
       if (cloudData) {
@@ -379,6 +406,11 @@ export default function Page() {
           setRecurringFixed(cloudSettings.recurringFixed)
           localStorage.setItem(`sobinote-recurring-fixed-${phone}`, JSON.stringify(cloudSettings.recurringFixed))
         }
+      }
+      if (cloudProfitFirst) {
+        const cleanPF = Array.isArray(cloudProfitFirst) ? cloudProfitFirst : []
+        setProfitFirstMonths(cleanPF)
+        localStorage.setItem(`sobinote-profitfirst-${phone}`, JSON.stringify(cleanPF))
       }
     } catch (e) {
       console.error('Cloud sync error on load:', e)
@@ -452,6 +484,7 @@ export default function Page() {
     { id: 'transactions', label: '편한 가계부', icon: CalendarDays },
     { id: 'accounts', label: '계좌 관리', icon: Landmark },
     { id: 'annual', label: '연간 결산', icon: BarChart3 },
+    { id: 'profit_first', label: '수익먼저 시스템', icon: TrendingUp },
     { id: 'settings', label: '설정', icon: Settings }
   ] as const
 
@@ -729,6 +762,12 @@ export default function Page() {
             />
           )}
           {page === 'annual' && <Annual data={data} />}
+          {page === 'profit_first' && (
+            <ProfitFirstView
+              months={profitFirstMonths}
+              onUpdate={persistProfitFirst}
+            />
+          )}
           {page === 'settings' && (
             <SettingsView
               catGroups={catGroups}
@@ -2240,6 +2279,228 @@ function Annual({ data }: { data: MonthlyData }) {
           <p className="muted">자동이체 4건 · 이번 달 잔액 1,240,000원</p>
         </section>
       </div>
+    </>
+  )
+}
+
+function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onUpdate: (m: ProfitFirstMonth[]) => void }) {
+  const ymLabel = (ym: string) => {
+    const [y, m] = ym.split('-')
+    return `${y}년 ${Number(m)}월`
+  }
+
+  const createNewMonth = () => {
+    const now = new Date()
+    const mk = monthKey(now)
+    if (months.find(m => m.month === mk)) return
+
+    const lastMonth = months.length > 0 ? months[0] : null
+    const newAccounts: ProfitFirstAccount[] = lastMonth
+      ? lastMonth.accounts.map(a => ({ ...a, id: uid(), actualAmount: 0, improvement: '' }))
+      : defaultProfitFirstAccounts.map(a => ({ ...a, id: uid() }))
+
+    onUpdate([{ month: mk, income: 0, accounts: newAccounts }, ...months])
+  }
+
+  const updateMonth = (monthStr: string, updater: (m: ProfitFirstMonth) => ProfitFirstMonth) => {
+    onUpdate(months.map(m => m.month === monthStr ? updater(m) : m))
+  }
+
+  const addAccount = (monthStr: string) => {
+    updateMonth(monthStr, m => ({
+      ...m,
+      accounts: [...m.accounts, { id: uid(), name: '새 계좌', targetPercent: 0, actualAmount: 0, improvement: '' }]
+    }))
+  }
+
+  const removeAccount = (monthStr: string, accountId: string) => {
+    updateMonth(monthStr, m => ({
+      ...m,
+      accounts: m.accounts.filter(a => a.id !== accountId)
+    }))
+  }
+
+  const updateAccount = (monthStr: string, accountId: string, field: keyof ProfitFirstAccount, value: string | number) => {
+    updateMonth(monthStr, m => ({
+      ...m,
+      accounts: m.accounts.map(a => a.id === accountId ? { ...a, [field]: value } : a)
+    }))
+  }
+
+  const defaultNames = defaultProfitFirstAccounts.map(a => a.name)
+
+  return (
+    <>
+      <section className="card" style={{ marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>수익먼저 시스템</h2>
+          <button className="btn-primary" onClick={createNewMonth} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
+            <Plus style={{ width: '1rem', height: '1rem' }} /> 이번 달 생성
+          </button>
+        </div>
+        <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.82rem' }}>
+          Profit First — 매출에서 수익을 먼저 떼어놓고, 나머지로 운영하세요.
+        </p>
+      </section>
+
+      {months.length === 0 && (
+        <section className="card" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#8e8e93' }}>
+          <TrendingUp style={{ width: '2.5rem', height: '2.5rem', margin: '0 auto 1rem', opacity: 0.4 }} />
+          <p>아직 생성된 달이 없습니다.</p>
+          <p style={{ fontSize: '0.82rem' }}>위의 &quot;이번 달 생성&quot; 버튼을 눌러 시작하세요.</p>
+        </section>
+      )}
+
+      {months.map(pfMonth => {
+        const totalActual = pfMonth.accounts.reduce((s, a) => s + (Number(a.actualAmount) || 0), 0)
+        const totalTargetPercent = pfMonth.accounts.reduce((s, a) => s + (Number(a.targetPercent) || 0), 0)
+        const totalAllocated = pfMonth.accounts.reduce((s, a) => s + (pfMonth.income * (Number(a.targetPercent) || 0) / 100), 0)
+        const totalDelta = totalAllocated - totalActual
+
+        return (
+          <section key={pfMonth.month} className="card pf-month-card">
+            <h3 className="pf-month-title">{ymLabel(pfMonth.month)}</h3>
+
+            <div className="pf-table-wrapper">
+              <table className="pf-table">
+                <thead>
+                  <tr>
+                    <th>항목</th>
+                    <th>실적</th>
+                    <th>목표 배당률</th>
+                    <th>할당금</th>
+                    <th>델타</th>
+                    <th>개선 방향</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* 수입 행 */}
+                  <tr className="pf-income-row">
+                    <td className="pf-label"><strong>수입 (Income)</strong></td>
+                    <td>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className="pf-input"
+                        value={pfMonth.income ? pfMonth.income.toLocaleString('ko-KR') : ''}
+                        placeholder="0"
+                        onChange={e => {
+                          const v = parseMoney(e.target.value)
+                          updateMonth(pfMonth.month, m => ({ ...m, income: v }))
+                        }}
+                      />
+                    </td>
+                    <td className="pf-muted">—</td>
+                    <td className="pf-muted">—</td>
+                    <td className="pf-muted">—</td>
+                    <td className="pf-muted">—</td>
+                    <td></td>
+                  </tr>
+
+                  {/* 각 계좌 행 */}
+                  {pfMonth.accounts.map(acc => {
+                    const allocated = pfMonth.income * (Number(acc.targetPercent) || 0) / 100
+                    const delta = allocated - (Number(acc.actualAmount) || 0)
+                    const isCustom = !defaultNames.includes(acc.name)
+
+                    return (
+                      <tr key={acc.id}>
+                        <td className="pf-label">
+                          {isCustom ? (
+                            <input
+                              type="text"
+                              className="pf-input pf-name-input"
+                              value={acc.name}
+                              onChange={e => updateAccount(pfMonth.month, acc.id, 'name', e.target.value)}
+                            />
+                          ) : (
+                            acc.name
+                          )}
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className="pf-input"
+                            value={acc.actualAmount ? acc.actualAmount.toLocaleString('ko-KR') : ''}
+                            placeholder="0"
+                            onChange={e => updateAccount(pfMonth.month, acc.id, 'actualAmount', parseMoney(e.target.value))}
+                          />
+                        </td>
+                        <td>
+                          <div className="pf-percent-wrap">
+                            <input
+                              type="number"
+                              className="pf-input pf-percent-input"
+                              value={acc.targetPercent || ''}
+                              placeholder="0"
+                              min={0}
+                              max={100}
+                              onChange={e => updateAccount(pfMonth.month, acc.id, 'targetPercent', Number(e.target.value) || 0)}
+                            />
+                            <span className="pf-percent-sign">%</span>
+                          </div>
+                        </td>
+                        <td className="pf-computed">{pfMonth.income > 0 ? money(allocated) : '—'}</td>
+                        <td className={`pf-computed ${delta > 0 ? 'pf-delta-positive' : delta < 0 ? 'pf-delta-negative' : ''}`}>
+                          {pfMonth.income > 0 && acc.actualAmount > 0 ? (delta >= 0 ? '+' : '') + money(delta) : '—'}
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            className="pf-input pf-improve-input"
+                            value={acc.improvement}
+                            placeholder="메모"
+                            onChange={e => updateAccount(pfMonth.month, acc.id, 'improvement', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          {isCustom && (
+                            <button
+                              className="pf-delete-btn"
+                              title="계좌 삭제"
+                              onClick={() => {
+                                if (confirm(`'${acc.name}' 계좌를 삭제하시겠습니까?`)) {
+                                  removeAccount(pfMonth.month, acc.id)
+                                }
+                              }}
+                            >
+                              <Trash2 style={{ width: '0.9rem', height: '0.9rem' }} />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+
+                  {/* 합계 행 */}
+                  <tr className="pf-total-row">
+                    <td className="pf-label"><strong>합계</strong></td>
+                    <td className="pf-computed"><strong>{money(totalActual)}</strong></td>
+                    <td className={`pf-computed pf-total-percent ${totalTargetPercent > 100 ? 'pf-over' : totalTargetPercent === 100 ? 'pf-exact' : ''}`}>
+                      <strong>{totalTargetPercent}%</strong>
+                    </td>
+                    <td className="pf-computed"><strong>{pfMonth.income > 0 ? money(totalAllocated) : '—'}</strong></td>
+                    <td className={`pf-computed ${totalDelta > 0 ? 'pf-delta-positive' : totalDelta < 0 ? 'pf-delta-negative' : ''}`}>
+                      <strong>{pfMonth.income > 0 && totalActual > 0 ? (totalDelta >= 0 ? '+' : '') + money(totalDelta) : '—'}</strong>
+                    </td>
+                    <td className="pf-muted">—</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <button
+              className="pf-add-account-btn"
+              onClick={() => addAccount(pfMonth.month)}
+            >
+              <Plus style={{ width: '0.9rem', height: '0.9rem' }} /> 계좌 추가
+            </button>
+          </section>
+        )
+      })}
     </>
   )
 }
