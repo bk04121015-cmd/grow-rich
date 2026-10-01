@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CreditCard, HelpCircle, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, TrendingUp, Wallet, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CreditCard, HelpCircle, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, TrendingUp, Wallet, X, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react'
 import {
   categories as defaultCategories,
   defaultCategoryGroups,
@@ -16,6 +16,7 @@ import {
   type Transaction,
   type TransactionType,
   type RecurringFixedExpense,
+  type NotionConfig,
   parseTransactionText,
   getUserProfile,
   saveUserProfile,
@@ -268,11 +269,23 @@ export default function Page() {
     }
   }
 
+  const [notionConfig, setNotionConfig] = useState<NotionConfig>({ enabled: false })
+  const [notionSyncing, setNotionSyncing] = useState(false)
+  const [notionSyncResult, setNotionSyncResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  const persistNotionConfig = (next: NotionConfig) => {
+    setNotionConfig(next)
+    if (currentUser) {
+      localStorage.setItem(`sobinote-notion-${currentUser}`, JSON.stringify(next))
+      saveUserSettingsToFirestore(currentUser, { catGroups, recurringFixed, notionConfig: next })
+    }
+  }
+
   const persistCatGroups = (next: CategoryGroups) => {
     setCatGroups(next)
     if (currentUser) {
       localStorage.setItem(`sobinote-cat-groups-${currentUser}`, JSON.stringify(next))
-      saveUserSettingsToFirestore(currentUser, { catGroups: next, recurringFixed })
+      saveUserSettingsToFirestore(currentUser, { catGroups: next, recurringFixed, notionConfig })
     }
   }
 
@@ -280,7 +293,77 @@ export default function Page() {
     setRecurringFixed(next)
     if (currentUser) {
       localStorage.setItem(`sobinote-recurring-fixed-${currentUser}`, JSON.stringify(next))
-      saveUserSettingsToFirestore(currentUser, { catGroups, recurringFixed: next })
+      saveUserSettingsToFirestore(currentUser, { catGroups, recurringFixed: next, notionConfig })
+    }
+  }
+
+  const handleSyncNotion = async (customConfig?: NotionConfig) => {
+    const activeConfig = customConfig || notionConfig
+    if (!activeConfig.apiKey?.trim() || !activeConfig.parentPageId?.trim()) {
+      setNotionSyncResult({ type: 'error', message: '노션 API 키와 저널링 페이지 링크를 먼저 입력하고 저장해 주세요.' })
+      return
+    }
+    setNotionSyncing(true)
+    setNotionSyncResult(null)
+    try {
+      const res = await fetch('/api/notion/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: activeConfig.apiKey.trim(),
+          parentPageId: activeConfig.parentPageId.trim(),
+          targetDate: new Date().toISOString().slice(0, 10)
+        })
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        throw new Error(result.error || '노션 동기화에 실패했습니다.')
+      }
+
+      if (result.success && Array.isArray(result.transactions) && result.transactions.length > 0) {
+        const existingKeys = new Set(data.transactions.map((t: Transaction) => `${t.date}|${t.itemName}|${t.amount}`))
+        const newTxList: Transaction[] = []
+        for (const item of result.transactions) {
+          const key = `${item.date}|${item.itemName}|${item.amount}`
+          if (!existingKeys.has(key)) {
+            newTxList.push({ ...item, id: uid() })
+            existingKeys.add(key)
+          }
+        }
+
+        if (newTxList.length > 0) {
+          const updated = {
+            ...data,
+            transactions: [...newTxList, ...data.transactions]
+          }
+          persist(updated)
+          const names = newTxList.map(t => `${t.itemName}(${t.amount.toLocaleString()}원)`).join(', ')
+          setNotionSyncResult({
+            type: 'success',
+            message: `[${result.pageTitle}]에서 ${newTxList.length}건이 가계부에 등록되었습니다! (${names})`
+          })
+        } else {
+          setNotionSyncResult({
+            type: 'success',
+            message: `[${result.pageTitle}]의 모든 내역(${result.transactions.length}건)이 이미 가계부에 등록되어 있어 중복 추가되지 않았습니다.`
+          })
+        }
+
+        const updatedConfig: NotionConfig = {
+          ...activeConfig,
+          lastSyncedAt: new Date().toLocaleString('ko-KR')
+        }
+        persistNotionConfig(updatedConfig)
+      } else {
+        setNotionSyncResult({
+          type: 'error',
+          message: result.message || '가계부 내역을 찾지 못했습니다.'
+        })
+      }
+    } catch (err: any) {
+      setNotionSyncResult({ type: 'error', message: err.message || '동기화 중 오류가 발생했습니다.' })
+    } finally {
+      setNotionSyncing(false)
     }
   }
 
@@ -369,6 +452,17 @@ export default function Page() {
       setProfitFirstMonths([])
     }
 
+    const savedNotion = localStorage.getItem(`sobinote-notion-${phone}`)
+    if (savedNotion) {
+      try {
+        setNotionConfig(JSON.parse(savedNotion))
+      } catch {
+        setNotionConfig({ enabled: false })
+      }
+    } else {
+      setNotionConfig({ enabled: false })
+    }
+
     const users: Record<string, { password?: string; name?: string }> = JSON.parse(localStorage.getItem('sobinote-users') || '{}')
     setUserName(users[phone]?.name || '')
 
@@ -405,6 +499,10 @@ export default function Page() {
         if (cloudSettings.recurringFixed && Array.isArray(cloudSettings.recurringFixed)) {
           setRecurringFixed(cloudSettings.recurringFixed)
           localStorage.setItem(`sobinote-recurring-fixed-${phone}`, JSON.stringify(cloudSettings.recurringFixed))
+        }
+        if (cloudSettings.notionConfig) {
+          setNotionConfig(cloudSettings.notionConfig)
+          localStorage.setItem(`sobinote-notion-${phone}`, JSON.stringify(cloudSettings.notionConfig))
         }
       }
       if (cloudProfitFirst) {
@@ -489,8 +587,13 @@ export default function Page() {
   ] as const
 
   // 매달 반복되는 고정지출을 현재 월의 거래 목록에 자동 동기화
+  // 단, 오늘 기준 현재 월에만 자동 생성 (과거 달 조회 시 고정지출이 무한 생성되는 버그 방지)
   useEffect(() => {
     if (!recurringFixed.length || !currentUser) return
+
+    // 현재 월(오늘 기준)이 아닌 과거/미래 달에는 자동 생성하지 않음
+    const currentMonth = monthKey()
+    if (month !== currentMonth) return
 
     const [y, m] = month.split('-').map(Number)
     const maxDays = new Date(y, m, 0).getDate()
@@ -726,6 +829,11 @@ export default function Page() {
               persist={persist}
               onAdd={() => openAddModal()}
               onEdit={(t: Transaction) => { setEditing(t); setModal(true) }}
+              onGoToPage={(p: Page) => setPage(p)}
+              notionConfig={notionConfig}
+              onSyncNotion={handleSyncNotion}
+              notionSyncing={notionSyncing}
+              notionSyncResult={notionSyncResult}
             />
           )}
           {page === 'calendar' && (
@@ -778,6 +886,11 @@ export default function Page() {
               currentUser={currentUser}
               userName={userName}
               onUpdateName={(name) => setUserName(name)}
+              notionConfig={notionConfig}
+              onUpdateNotionConfig={persistNotionConfig}
+              onSyncNotion={handleSyncNotion}
+              notionSyncing={notionSyncing}
+              notionSyncResult={notionSyncResult}
             />
           )}
         </div>
@@ -831,7 +944,22 @@ function MonthBar({ month, changeMonth }: { month: string; changeMonth: (n: numb
   )
 }
 
-function Dashboard({ data, totals, budgetTotals, month, changeMonth, cats: userCats, persist, onAdd, onEdit }: any) {
+function Dashboard({
+  data,
+  totals,
+  budgetTotals,
+  month,
+  changeMonth,
+  cats: userCats,
+  persist,
+  onAdd,
+  onEdit,
+  onGoToPage,
+  notionConfig,
+  onSyncNotion,
+  notionSyncing,
+  notionSyncResult
+}: any) {
   const catData = defaultCategories.map(category => ({
     name: category,
     value: data.transactions
@@ -882,10 +1010,45 @@ function Dashboard({ data, totals, budgetTotals, month, changeMonth, cats: userC
           onChange={e => setSms(e.target.value)}
           placeholder="예: [신한카드] 스타벅스 5,500원 승인"
         />
-        <div className="quick-actions">
+        <div className="quick-actions" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="small-btn" onClick={parse}>자동으로 읽기</button>
+          {notionConfig?.enabled && (
+            <button
+              className="small-btn"
+              type="button"
+              style={{ background: '#1d1d1f', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}
+              disabled={notionSyncing}
+              onClick={() => onSyncNotion?.()}
+            >
+              <RefreshCw style={{ width: '13px', height: '13px', animation: notionSyncing ? 'spin 1s linear infinite' : 'none' }} />
+              {notionSyncing ? '노션 동기화 중...' : '노션에서 가져오기'}
+            </button>
+          )}
           <button className="text-btn" onClick={onAdd}>직접 입력하기</button>
         </div>
+        {notionSyncResult && (
+          <div
+            style={{
+              marginTop: '0.75rem',
+              padding: '0.75rem 1rem',
+              borderRadius: '10px',
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: notionSyncResult.type === 'success' ? '#eefbf3' : '#fdf2f2',
+              color: notionSyncResult.type === 'success' ? '#1b7340' : '#d93025',
+              border: `1px solid ${notionSyncResult.type === 'success' ? '#b8ebca' : '#f8c4c4'}`
+            }}
+          >
+            {notionSyncResult.type === 'success' ? (
+              <CheckCircle2 style={{ width: '16px', height: '16px', flexShrink: 0 }} />
+            ) : (
+              <AlertCircle style={{ width: '16px', height: '16px', flexShrink: 0 }} />
+            )}
+            <span>{notionSyncResult.message}</span>
+          </div>
+        )}
         {quick && (
           <div className="parse-preview">
             <p className="muted">분류 결과를 확인하고 수정한 뒤 저장하세요.</p>
@@ -935,7 +1098,7 @@ function Dashboard({ data, totals, budgetTotals, month, changeMonth, cats: userC
               <p className="eyebrow">BUDGET TRACKER</p>
               <h3>예산 대비 지출</h3>
             </div>
-            <button className="link-btn">예산 수정 →</button>
+            <button className="link-btn" onClick={() => onGoToPage('budget')}>예산 수정 →</button>
           </div>
           {[
             ['고정지출', totals.fixed, budgetTotals.fixed],
@@ -979,7 +1142,7 @@ function Dashboard({ data, totals, budgetTotals, month, changeMonth, cats: userC
               <p className="eyebrow">RECENT ACTIVITY</p>
               <h3>최근 거래</h3>
             </div>
-            <button className="link-btn">전체보기 →</button>
+            <button className="link-btn" onClick={() => onGoToPage('transactions')}>전체보기 →</button>
           </div>
           {data.transactions.slice(0, 4).map((t: Transaction) => (
             <TransactionRow key={t.id} t={t} onEdit={onEdit} />
@@ -2637,7 +2800,12 @@ function SettingsView({
   onDeleteRecurringFixed,
   currentUser,
   userName,
-  onUpdateName
+  onUpdateName,
+  notionConfig,
+  onUpdateNotionConfig,
+  onSyncNotion,
+  notionSyncing,
+  notionSyncResult
 }: {
   catGroups: CategoryGroups;
   onUpdateCatGroups: (c: CategoryGroups) => void;
@@ -2647,6 +2815,11 @@ function SettingsView({
   currentUser: string;
   userName: string;
   onUpdateName: (name: string) => void;
+  notionConfig: NotionConfig;
+  onUpdateNotionConfig: (c: NotionConfig) => void;
+  onSyncNotion: (cfg?: NotionConfig) => void;
+  notionSyncing: boolean;
+  notionSyncResult: { type: 'success' | 'error'; message: string } | null;
 }) {
   const [catTab, setCatTab] = useState<'expense' | 'income' | 'saving' | 'loan'>('expense')
   const [newCat, setNewCat] = useState('')
@@ -2662,6 +2835,31 @@ function SettingsView({
   const [fixedAmount, setFixedAmount] = useState('')
   const [fixedDay, setFixedDay] = useState('25')
   const [showAddFixed, setShowAddFixed] = useState(false)
+
+  const [notionEnabled, setNotionEnabled] = useState(notionConfig?.enabled || false)
+  const [notionApiKey, setNotionApiKey] = useState(notionConfig?.apiKey || '')
+  const [notionPageId, setNotionPageId] = useState(notionConfig?.parentPageId || '')
+  const [notionSavedMsg, setNotionSavedMsg] = useState('')
+  const [showGuide, setShowGuide] = useState(false)
+
+  useEffect(() => {
+    setNotionEnabled(notionConfig?.enabled || false)
+    setNotionApiKey(notionConfig?.apiKey || '')
+    setNotionPageId(notionConfig?.parentPageId || '')
+  }, [notionConfig])
+
+  const saveNotionSettings = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    const updated: NotionConfig = {
+      enabled: notionEnabled,
+      apiKey: notionApiKey.trim(),
+      parentPageId: notionPageId.trim(),
+      lastSyncedAt: notionConfig.lastSyncedAt
+    }
+    onUpdateNotionConfig(updated)
+    setNotionSavedMsg('노션 설정이 저장되었습니다!')
+    setTimeout(() => setNotionSavedMsg(''), 2500)
+  }
 
   const saveName = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -2966,6 +3164,147 @@ function SettingsView({
             ))
           )}
         </div>
+      </section>
+
+      <section className="panel settings-panel">
+        <div className="panel-head">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '1.25rem' }}>📓</span>
+              <h3>노션(Notion) 저널링 연동</h3>
+            </div>
+            <p className="muted">매일 작성하시는 노션 일일저널링의 '8. 가계부' 항목을 터치 한 번으로 가계부에 쏙 가져옵니다.</p>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}>
+            <input
+              type="checkbox"
+              checked={notionEnabled}
+              onChange={e => {
+                const nextVal = e.target.checked
+                setNotionEnabled(nextVal)
+                const updated = { ...notionConfig, enabled: nextVal }
+                onUpdateNotionConfig(updated)
+              }}
+              style={{ width: '18px', height: '18px', accentColor: '#0071e3', cursor: 'pointer' }}
+            />
+            연동 활성화
+          </label>
+        </div>
+
+        {notionEnabled ? (
+          <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <form onSubmit={saveNotionSettings} className="form-stack">
+              <label>
+                노션 프라이빗 API 토큰 (내부 통합 시크릿)
+                <input
+                  type="password"
+                  placeholder="secret_xxxxxxxxxxxxxxxxxxxxxxxx..."
+                  value={notionApiKey}
+                  onChange={e => setNotionApiKey(e.target.value)}
+                  style={{ marginTop: '0.25rem', fontFamily: 'monospace', fontSize: '0.85rem' }}
+                />
+              </label>
+
+              <label>
+                저널링 모음 페이지 링크 또는 ID
+                <input
+                  type="text"
+                  placeholder="예: https://www.notion.so/9-29-... 또는 페이지/데이터베이스 ID"
+                  value={notionPageId}
+                  onChange={e => setNotionPageId(e.target.value)}
+                  style={{ marginTop: '0.25rem' }}
+                />
+              </label>
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                <button className="small-btn" type="submit" style={{ background: '#1d1d1f', color: '#fff' }}>
+                  설정 저장
+                </button>
+                <button
+                  type="button"
+                  className="small-btn"
+                  style={{ background: '#0071e3', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  disabled={notionSyncing}
+                  onClick={() => {
+                    const latestConfig: NotionConfig = {
+                      enabled: true,
+                      apiKey: notionApiKey.trim(),
+                      parentPageId: notionPageId.trim(),
+                      lastSyncedAt: notionConfig.lastSyncedAt
+                    }
+                    onUpdateNotionConfig(latestConfig)
+                    onSyncNotion(latestConfig)
+                  }}
+                >
+                  <RefreshCw style={{ width: '14px', height: '14px', animation: notionSyncing ? 'spin 1s linear infinite' : 'none' }} />
+                  {notionSyncing ? '노션에서 읽어오는 중...' : '지금 노션에서 가져오기'}
+                </button>
+              </div>
+
+              {notionSavedMsg && <p className="success" style={{ marginTop: '0.25rem' }}>{notionSavedMsg}</p>}
+            </form>
+
+            {notionSyncResult && (
+              <div
+                style={{
+                  padding: '0.85rem 1rem',
+                  borderRadius: '10px',
+                  fontSize: '0.9rem',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  background: notionSyncResult.type === 'success' ? '#eefbf3' : '#fdf2f2',
+                  color: notionSyncResult.type === 'success' ? '#1b7340' : '#d93025',
+                  border: `1px solid ${notionSyncResult.type === 'success' ? '#b8ebca' : '#f8c4c4'}`
+                }}
+              >
+                {notionSyncResult.type === 'success' ? (
+                  <CheckCircle2 style={{ width: '18px', height: '18px', flexShrink: 0, marginTop: '2px' }} />
+                ) : (
+                  <AlertCircle style={{ width: '18px', height: '18px', flexShrink: 0, marginTop: '2px' }} />
+                )}
+                <div>{notionSyncResult.message}</div>
+              </div>
+            )}
+
+            {notionConfig.lastSyncedAt && (
+              <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>
+                최근 동기화 일시: <b>{notionConfig.lastSyncedAt}</b>
+              </p>
+            )}
+
+            <div style={{ marginTop: '0.5rem', background: '#f8f8fc', padding: '1rem', borderRadius: '12px' }}>
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => setShowGuide(v => !v)}
+              >
+                <b style={{ fontSize: '0.9rem', color: '#1d1d1f' }}>💡 1분 연동 가이드 (발급 & 권한 설정 방법)</b>
+                <span style={{ fontSize: '0.8rem', color: '#0071e3' }}>{showGuide ? '접기 ▲' : '자세히 보기 ▼'}</span>
+              </div>
+
+              {showGuide && (
+                <ol style={{ margin: '0.75rem 0 0 1.2rem', padding: 0, fontSize: '0.85rem', color: '#555', lineHeight: '1.6' }}>
+                  <li>
+                    <b>API 키 발급:</b> <a href="https://www.notion.so/profile/integrations" target="_blank" rel="noreferrer" style={{ color: '#0071e3', textDecoration: 'underline' }}>노션 개발자 통합 페이지</a>에 접속해 <b>[+ 새 API 통합]</b>을 만들고, <b>'내부 통합 시크릿(secret_...)'</b>을 복사하여 위 토큰란에 붙여넣습니다.
+                  </li>
+                  <li>
+                    <b>페이지 권한 허용:</b> 노션에서 저널링 페이지(또는 저널링들이 모여있는 상위 페이지)를 열고, 우측 상단 <b>[···]</b> ➡️ <b>[연결(Connections)]</b> ➡️ 방금 만든 통합을 선택하여 추가해 줍니다.
+                  </li>
+                  <li>
+                    <b>링크 복사:</b> 해당 노션 페이지의 URL 주소를 복사하여 위 <b>'저널링 모음 페이지 링크'</b>에 넣고 <b>[설정 저장]</b>을 누르면 완료!
+                  </li>
+                  <li>
+                    <b>작성 요령:</b> 노션 페이지 본문에서 <b>'8. 가계부'</b>(또는 '가계부') 항목 아래에 평소처럼 <code>커피 10000</code>, <code>점심 12000 식비</code>처럼 적어두시면 알아서 금액과 카테고리를 인식합니다.
+                  </li>
+                </ol>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="empty-cat-box" style={{ marginTop: '0.75rem' }}>
+            노션 연동이 꺼져 있습니다. 위 <b>'연동 활성화'</b>를 체크하시면 매일 저널링에 적은 가계부를 원클릭으로 동기화할 수 있습니다.
+          </div>
+        )}
       </section>
     </>
   )
