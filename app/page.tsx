@@ -297,14 +297,18 @@ export default function Page() {
     }
   }
 
-  const handleSyncNotion = async (customConfig?: NotionConfig) => {
+  const handleSyncNotion = async (customConfig?: NotionConfig, silent = false, baseData?: MonthlyData) => {
     const activeConfig = customConfig || notionConfig
     if (!activeConfig.apiKey?.trim() || !activeConfig.parentPageId?.trim()) {
-      setNotionSyncResult({ type: 'error', message: '노션 API 키와 저널링 페이지 링크를 먼저 입력하고 저장해 주세요.' })
+      if (!silent) {
+        setNotionSyncResult({ type: 'error', message: '노션 API 키와 저널링 페이지 링크를 먼저 입력하고 저장해 주세요.' })
+      }
       return
     }
-    setNotionSyncing(true)
-    setNotionSyncResult(null)
+    if (!silent) {
+      setNotionSyncing(true)
+      setNotionSyncResult(null)
+    }
     try {
       const res = await fetch('/api/notion/sync', {
         method: 'POST',
@@ -317,11 +321,13 @@ export default function Page() {
       })
       const result = await res.json()
       if (!res.ok) {
-        throw new Error(result.error || '노션 동기화에 실패했습니다.')
+        if (!silent) throw new Error(result.error || '노션 동기화에 실패했습니다.')
+        return
       }
 
       if (result.success && Array.isArray(result.transactions) && result.transactions.length > 0) {
-        const existingKeys = new Set(data.transactions.map((t: Transaction) => `${t.date}|${t.itemName}|${t.amount}`))
+        const targetData = baseData || data
+        const existingKeys = new Set(targetData.transactions.map((t: Transaction) => `${t.date}|${t.itemName}|${t.amount}`))
         const newTxList: Transaction[] = []
         for (const item of result.transactions) {
           const key = `${item.date}|${item.itemName}|${item.amount}`
@@ -333,37 +339,40 @@ export default function Page() {
 
         if (newTxList.length > 0) {
           const updated = {
-            ...data,
-            transactions: [...newTxList, ...data.transactions]
+            ...targetData,
+            transactions: [...newTxList, ...targetData.transactions]
           }
           persist(updated)
           const names = newTxList.map(t => `${t.itemName}(${t.amount.toLocaleString()}원)`).join(', ')
           setNotionSyncResult({
             type: 'success',
-            message: `[${result.pageTitle}]에서 ${newTxList.length}건이 가계부에 등록되었습니다! (${names})`
+            message: `[${result.pageTitle}]에서 ${newTxList.length}건이 자동 동기화되었습니다! (${names})`
           })
-        } else {
+        } else if (!silent) {
           setNotionSyncResult({
             type: 'success',
             message: `[${result.pageTitle}]의 모든 내역(${result.transactions.length}건)이 이미 가계부에 등록되어 있어 중복 추가되지 않았습니다.`
           })
         }
 
+        const nowKst = new Date().toLocaleString('ko-KR')
         const updatedConfig: NotionConfig = {
           ...activeConfig,
-          lastSyncedAt: new Date().toLocaleString('ko-KR')
+          lastSyncedAt: nowKst
         }
         persistNotionConfig(updatedConfig)
-      } else {
+      } else if (!silent) {
         setNotionSyncResult({
           type: 'error',
           message: result.message || '가계부 내역을 찾지 못했습니다.'
         })
       }
     } catch (err: any) {
-      setNotionSyncResult({ type: 'error', message: err.message || '동기화 중 오류가 발생했습니다.' })
+      if (!silent) {
+        setNotionSyncResult({ type: 'error', message: err.message || '동기화 중 오류가 발생했습니다.' })
+      }
     } finally {
-      setNotionSyncing(false)
+      if (!silent) setNotionSyncing(false)
     }
   }
 
@@ -503,6 +512,9 @@ export default function Page() {
         if (cloudSettings.notionConfig) {
           setNotionConfig(cloudSettings.notionConfig)
           localStorage.setItem(`sobinote-notion-${phone}`, JSON.stringify(cloudSettings.notionConfig))
+          if (cloudSettings.notionConfig.enabled && cloudSettings.notionConfig.apiKey && cloudSettings.notionConfig.parentPageId) {
+            handleSyncNotion(cloudSettings.notionConfig, true, cloudData ? sanitizeData(cloudData) : undefined)
+          }
         }
       }
       if (cloudProfitFirst) {
@@ -548,7 +560,7 @@ export default function Page() {
   }
 
   const totals = useMemo(() => {
-    const tx = Array.isArray(data?.transactions) ? data.transactions : []
+    const tx = (Array.isArray(data?.transactions) ? data.transactions : []).filter(x => x.date?.startsWith(month))
     const sum = (t: TransactionType) => tx.filter(x => x.type === t).reduce((a, x) => a + (Number(x.amount) || 0), 0)
     return {
       income: sum('income'),
@@ -557,7 +569,7 @@ export default function Page() {
       saving: sum('saving'),
       loan: sum('loan_payment')
     }
-  }, [data])
+  }, [data, month])
 
   const budgetTotals = useMemo(() => {
     const b = Array.isArray(data?.budgets) ? data.budgets : []
@@ -632,7 +644,9 @@ export default function Page() {
 
   const openAddModal = (dateStr?: string, defaultType?: TransactionType, defaultCategory?: string) => {
     setEditing(null)
-    setModalInitialDate(dateStr)
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const fallbackDate = todayStr.startsWith(month) ? todayStr : `${month}-01`
+    setModalInitialDate(dateStr || fallbackDate)
     setModalDefaultType(defaultType)
     setModalDefaultCategory(defaultCategory)
     setModal(true)
@@ -960,18 +974,29 @@ function Dashboard({
   notionSyncing,
   notionSyncResult
 }: any) {
-  const catData = defaultCategories.map(category => ({
-    name: category,
-    value: data.transactions
-      .filter((x: Transaction) => x.type === 'variable_expense' && x.category === category)
-      .reduce((a: number, x: Transaction) => a + x.amount, 0)
-  }))
+  const monthTransactions = useMemo(() => {
+    return (data.transactions || []).filter((x: Transaction) => x.date?.startsWith(month))
+  }, [data.transactions, month])
+
+  const catData = useMemo(() => {
+    const categoriesToUse = userCats?.length ? userCats : defaultCategories
+    return categoriesToUse.map((category: string) => ({
+      name: category,
+      value: monthTransactions
+        .filter((x: Transaction) => (x.type === 'variable_expense' || x.type === 'loan_payment') && x.category === category)
+        .reduce((a: number, x: Transaction) => a + x.amount, 0)
+    }))
+  }, [monthTransactions, userCats])
+
   const remain = totals.income - totals.fixed - totals.variable - totals.saving - totals.loan
+
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const defaultEntryDate = todayStr.startsWith(month) ? todayStr : `${month}-01`
 
   const [sms, setSms] = useState('')
   const [quick, setQuick] = useState<Omit<Transaction, 'id'> | null>(null)
 
-  const parse = () => setQuick(parseTransactionText(sms))
+  const parse = () => setQuick(parseTransactionText(sms, defaultEntryDate))
   const saveQuick = () => {
     if (!quick?.amount || !quick.itemName) return
     persist({ ...data, transactions: [{ ...quick, id: uid() }, ...data.transactions] })
@@ -1115,9 +1140,15 @@ function Dashboard({
             </div>
             {data.budgets
               .filter((x: Budget) => x.section === 'variable')
-              .map((x: Budget) => (
-                <Progress key={x.id} name={x.category || ''} value={x.actualAmount || 0} budget={x.amount} compact />
-              ))}
+              .map((x: Budget) => {
+                const spent = monthTransactions
+                  .filter((t: Transaction) => (t.type === 'variable_expense' || t.type === 'loan_payment') && t.category === x.category)
+                  .reduce((a: number, b: Transaction) => a + b.amount, 0)
+                const actual = spent > 0 ? spent : (x.actualAmount || 0)
+                return (
+                  <Progress key={x.id} name={x.category || ''} value={actual} budget={x.amount} compact />
+                )
+              })}
           </div>
         </section>
       </div>
@@ -1144,9 +1175,15 @@ function Dashboard({
             </div>
             <button className="link-btn" onClick={() => onGoToPage('transactions')}>전체보기 →</button>
           </div>
-          {data.transactions.slice(0, 4).map((t: Transaction) => (
-            <TransactionRow key={t.id} t={t} onEdit={onEdit} />
-          ))}
+          {monthTransactions.length > 0 ? (
+            monthTransactions.slice(0, 4).map((t: Transaction) => (
+              <TransactionRow key={t.id} t={t} onEdit={onEdit} />
+            ))
+          ) : (
+            <p className="empty" style={{ padding: '1.5rem 0', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
+              {ymLabel(month)}에 등록된 거래가 없습니다.
+            </p>
+          )}
         </section>
       </div>
     </>
@@ -3272,6 +3309,16 @@ function SettingsView({
                 최근 동기화 일시: <b>{notionConfig.lastSyncedAt}</b>
               </p>
             )}
+
+            <div style={{ background: '#f0f7ff', border: '1px solid #cce4ff', borderRadius: '10px', padding: '0.75rem 1rem', fontSize: '0.85rem', color: '#0056b3', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+              <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>🌙</span>
+              <div>
+                <b>매일 밤 23:50 서버 자동 스케줄러 가동 중</b>
+                <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#4a7bb0' }}>
+                  앱을 켜거나 버튼을 누르지 않아도, 매일 밤 11시 50분에 서버가 노션을 확인해 오늘자 가계부를 알아서 등록합니다.
+                </p>
+              </div>
+            </div>
 
             <div style={{ marginTop: '0.5rem', background: '#f8f8fc', padding: '1rem', borderRadius: '12px' }}>
               <div

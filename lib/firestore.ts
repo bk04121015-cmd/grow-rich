@@ -191,7 +191,7 @@ export function parseTransactionText(text: string, fallbackDate?: string): Omit<
   const amountMatch = normalized.match(/(?:금액|승인금액|출금|입금|결제)?\s*[:：]?\s*([0-9][0-9,]*)\s*원?/) || normalized.match(/([0-9][0-9,]*)\s*원?/)
   const amount = amountMatch ? parseMoney(amountMatch[1]) : 0
   const income = /입금|급여|월급|환급|송금받음|입금완료/.test(normalized)
-  const category = /식당|카페|커피|스타벅스|배달|치킨|외식/.test(normalized) ? categories[0] : /편의점|마트|온라인몰|생필품/.test(normalized) ? categories[1] : /학원|강의|서점|영화|문화/.test(normalized) ? categories[2] : /택시|버스|지하철|주유|교통/.test(normalized) ? categories[3] : categories[4]
+  const category = /식당|카페|커피|스타벅스|배달|치킨|외식|점심|저녁|아침|식사|밥|빵|간식|음료/.test(normalized) ? categories[0] : /편의점|마트|온라인몰|생필품|다이소|쿠팡|이마트|마켓컬리/.test(normalized) ? categories[1] : /학원|강의|서점|책|도서|영화|문화|공연|클래스/.test(normalized) ? categories[2] : /택시|버스|지하철|주유|교통|기차|ktx|티머니/.test(normalized) ? categories[3] : categories[4]
   const type: TransactionType = income ? 'income' : 'variable_expense'
   const dateMatch = normalized.match(/(20\d{2})[./-](\d{1,2})[./-](\d{1,2})/)
   const date = dateMatch ? `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}` : (fallbackDate || new Date().toISOString().slice(0, 10))
