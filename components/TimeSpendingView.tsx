@@ -56,6 +56,10 @@ const PRESET_COLORS = [
   '#64748b'  // slate
 ]
 
+// 0.5시간부터 12시간까지 0.5시간 단위 옵션 (총 24개)
+const DURATION_OPTIONS = Array.from({ length: 24 }, (_, i) => (i + 1) * 0.5)
+
+
 export default function TimeSpendingView({ data, onUpdate }: Props) {
   // 활성 서브 네비게이션 탭 (전체 흐름 or 개별 집중 모드)
   const [activeTab, setActiveTab] = useState<'all' | 'todos' | 'weekly' | 'daily'>('all')
@@ -745,25 +749,20 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                   className="flex-1 rounded-xl border border-neutral-300 bg-white px-3.5 py-2 text-sm text-neutral-900 placeholder-neutral-400 focus:border-neutral-900 focus:outline-none"
                 />
 
-                {/* 소요시간 선택 */}
+                {/* 소요시간 선택 드롭다운 (0.5시간 ~ 12시간) */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-neutral-600">소요시간:</span>
-                  <div className="flex items-center gap-1">
-                    {[0.5, 1, 1.5, 2, 3, 4].map(h => (
-                      <button
-                        key={h}
-                        type="button"
-                        onClick={() => setNewTodoHours(h)}
-                        className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
-                          newTodoHours === h
-                            ? 'bg-neutral-900 text-white shadow-sm'
-                            : 'bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-100'
-                        }`}
-                      >
-                        {h}시간
-                      </button>
+                  <span className="text-xs font-semibold text-neutral-600 flex-shrink-0">소요시간:</span>
+                  <select
+                    value={newTodoHours}
+                    onChange={e => setNewTodoHours(Number(e.target.value))}
+                    className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold text-neutral-800 focus:border-neutral-900 focus:outline-none cursor-pointer shadow-xs hover:border-neutral-400 transition"
+                  >
+                    {DURATION_OPTIONS.map(h => (
+                      <option key={h} value={h}>
+                        {h % 1 === 0 ? `${h}시간` : `${h}시간 (${Math.floor(h) > 0 ? `${Math.floor(h)}시간 30분` : '30분'})`}
+                      </option>
                     ))}
-                  </div>
+                  </select>
 
                   <button
                     onClick={handleAddTodo}
