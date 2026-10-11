@@ -42,8 +42,8 @@ type Props = {
 
 const uid = () => Math.random().toString(36).slice(2, 9)
 
-// 05:00부터 24:00까지의 시간 슬롯 리스트 (5 ~ 24, 총 20개 시간)
-const HOURS = Array.from({ length: 20 }, (_, i) => i + 5) // 5 to 24
+// 05:00부터 24:00까지의 30분 단위 시간 슬롯 리스트 (5.0 ~ 23.5, 총 38개 슬롯)
+const TIME_SLOTS = Array.from({ length: 38 }, (_, i) => 5 + i * 0.5)
 
 const PRESET_COLORS = [
   '#10b981', // emerald
@@ -260,14 +260,16 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
       const raw = e.dataTransfer.getData('application/json')
       if (!raw) return
       const item = JSON.parse(raw) as {
-        todoId: string
+        todoId?: string
         title: string
         categoryId: string
         durationHours: number
+        fromBlockId?: string
       }
 
       // 최대 24시 초과 방지
-      const clampedDuration = Math.min(item.durationHours, 24 - startHour + 1)
+      const clampedDuration = Math.min(item.durationHours, 24 - startHour)
+      if (clampedDuration <= 0) return
 
       const newBlock: WeeklyTimeBlock = {
         id: `wb-${uid()}`,
@@ -279,11 +281,17 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
         durationHours: clampedDuration
       }
 
+      let nextBlocks = weeklyBlocks
+      if (item.fromBlockId) {
+        // 이미 배치된 블록을 다른 슬롯으로 옮길 때 이전 블록 제거
+        nextBlocks = nextBlocks.filter(b => b.id !== item.fromBlockId)
+      }
+
       const updated = {
         ...data,
         weeklyPlanners: {
           ...data.weeklyPlanners,
-          [currentWeekKey]: [...weeklyBlocks, newBlock]
+          [currentWeekKey]: [...nextBlocks, newBlock]
         }
       }
       onUpdate(updated)
@@ -307,16 +315,20 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
   }
 
   // --- 원데이 피드백 핸들러 ---
-  // 마우스로 시간대 드래그(긁어서) 선택
-  const handleMouseDownFeedback = (hour: number) => {
+  // 마우스로 시간대 드래그(긁어서) 선택 (30분 단위)
+  const handleMouseDownFeedback = (slot: number) => {
     setIsSelectingTime(true)
-    setSelectionStartHour(hour)
-    setSelectionEndHour(hour)
+    setSelectionStartHour(slot)
+    setSelectionEndHour(slot + 0.5)
   }
 
-  const handleMouseEnterFeedback = (hour: number) => {
+  const handleMouseEnterFeedback = (slot: number) => {
     if (!isSelectingTime || selectionStartHour === null) return
-    setSelectionEndHour(hour)
+    if (slot >= selectionStartHour) {
+      setSelectionEndHour(slot + 0.5)
+    } else {
+      setSelectionEndHour(slot)
+    }
   }
 
   const handleMouseUpFeedback = () => {
@@ -326,7 +338,7 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
     }
     setIsSelectingTime(false)
     const start = Math.min(selectionStartHour, selectionEndHour)
-    const end = Math.max(selectionStartHour, selectionEndHour) + 1 // 선택 시간 슬롯을 포함한 종료 시점
+    const end = Math.max(selectionStartHour, selectionEndHour)
 
     // 팝업 열기
     setEditingFeedbackBlock(null)
@@ -994,82 +1006,127 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {HOURS.map(hour => (
-                  <tr
-                    key={hour}
-                    className="border-b border-neutral-100 last:border-b-0 hover:bg-neutral-50/30 transition"
-                  >
-                    {/* 시간 축 (05:00 ~ 24:00) */}
-                    <td className="w-16 p-1.5 text-center text-[11px] font-medium text-neutral-400 border-r border-neutral-200 bg-neutral-50/40">
-                      {formatHour(hour)}
-                    </td>
+                {TIME_SLOTS.map(slot => {
+                  const isHourStart = slot % 1 === 0
+                  return (
+                    <tr
+                      key={slot}
+                      className={`transition hover:bg-blue-50/20 ${
+                        isHourStart
+                          ? 'border-b border-neutral-200'
+                          : 'border-b border-dashed border-neutral-100'
+                      }`}
+                    >
+                      {/* 시간 축 (05:00 ~ 24:00) */}
+                      <td
+                        className={`w-16 p-1 text-center border-r border-neutral-200 bg-neutral-50/50 select-none ${
+                          isHourStart
+                            ? 'text-[11px] font-bold text-neutral-700'
+                            : 'text-[10px] text-neutral-400'
+                        }`}
+                      >
+                        {formatHour(slot)}
+                      </td>
 
-                    {/* 월~일 각 요일 셀 */}
-                    {daysOfWeek.map(d => {
-                      // 이 셀에서 시작하는 블록
-                      const startBlock = weeklyBlocks.find(
-                        b => b.dayOfWeek === d.dayIndex && b.startHour === hour
-                      )
-                      // 이 셀이 다른 블록의 점유 범위 내에 있는지 확인
-                      const isOccupiedByPrev = weeklyBlocks.some(
-                        b =>
-                          b.dayOfWeek === d.dayIndex &&
-                          b.startHour < hour &&
-                          b.startHour + b.durationHours > hour
-                      )
+                      {/* 월~일 각 요일 셀 */}
+                      {daysOfWeek.map(d => {
+                        // 이 셀에서 시작하는 블록
+                        const startBlock = weeklyBlocks.find(
+                          b => b.dayOfWeek === d.dayIndex && Math.abs(b.startHour - slot) < 0.01
+                        )
+                        // 이 셀이 다른 블록의 점유 범위 내에 있는지 확인
+                        const isOccupiedByPrev = weeklyBlocks.some(
+                          b =>
+                            b.dayOfWeek === d.dayIndex &&
+                            b.startHour < slot &&
+                            slot < b.startHour + b.durationHours
+                        )
 
-                      const cat = startBlock
-                        ? categories.find(c => c.id === startBlock.categoryId)
-                        : null
+                        const cat = startBlock
+                          ? categories.find(c => c.id === startBlock.categoryId)
+                          : null
 
-                      return (
-                        <td
-                          key={d.dayIndex}
-                          onDragOver={e => e.preventDefault()}
-                          onDrop={e => handleDropOnSlot(e, d.dayIndex, hour)}
-                          className={`relative h-11 p-1 border-r last:border-r-0 border-neutral-100 transition ${
-                            d.isToday ? 'bg-blue-50/20' : ''
-                          } hover:bg-blue-50/40`}
-                        >
-                          {startBlock && (
-                            <div
-                              style={{
-                                height: `calc(${startBlock.durationHours * 100}% + ${(startBlock.durationHours - 1) * 1}px)`,
-                                backgroundColor: cat?.color || '#3b82f6',
-                                zIndex: 10
-                              }}
-                              className="group absolute inset-x-1 top-1 rounded-xl p-1.5 text-white shadow-md transition hover:ring-2 hover:ring-white flex flex-col justify-between overflow-hidden"
-                            >
-                              <div className="flex items-start justify-between gap-1">
-                                <span className="text-[10px] font-medium opacity-90 truncate">
-                                  {cat?.name} ({startBlock.durationHours}h)
-                                </span>
-                                <button
-                                  onClick={e => handleDeleteWeeklyBlock(startBlock.id, e)}
-                                  className="rounded p-0.5 text-white/80 hover:bg-black/20 hover:text-white"
-                                  title="일정 삭제"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
+                        const slotCount = startBlock ? Math.round(startBlock.durationHours * 2) : 0
+
+                        return (
+                          <td
+                            key={d.dayIndex}
+                            onDragOver={e => e.preventDefault()}
+                            onDrop={e => handleDropOnSlot(e, d.dayIndex, slot)}
+                            className={`relative h-7 p-0.5 border-r last:border-r-0 border-neutral-100 transition ${
+                              d.isToday ? 'bg-blue-50/20' : ''
+                            } hover:bg-blue-50/40`}
+                          >
+                            {startBlock && (
+                              <div
+                                draggable
+                                onDragStart={e => {
+                                  e.dataTransfer.setData(
+                                    'application/json',
+                                    JSON.stringify({
+                                      todoId: startBlock.todoId,
+                                      title: startBlock.title,
+                                      categoryId: startBlock.categoryId,
+                                      durationHours: startBlock.durationHours,
+                                      fromBlockId: startBlock.id
+                                    })
+                                  )
+                                }}
+                                style={{
+                                  height: `calc(${slotCount * 100}% + ${(slotCount - 1) * 1}px - 2px)`,
+                                  backgroundColor: cat?.color || '#3b82f6',
+                                  zIndex: 20
+                                }}
+                                className="group absolute inset-x-0.5 top-0.5 rounded-lg p-1 text-white shadow-md transition hover:ring-2 hover:ring-white flex flex-col justify-between overflow-hidden cursor-grab active:cursor-grabbing select-none"
+                              >
+                                {slotCount <= 1 ? (
+                                  <div className="flex h-full items-center justify-between gap-1 text-[10px] leading-tight">
+                                    <span className="font-bold truncate" title={startBlock.title}>
+                                      {startBlock.title} ({formatHour(startBlock.startHour)}~{formatHour(startBlock.startHour + startBlock.durationHours)})
+                                    </span>
+                                    <button
+                                      onClick={e => handleDeleteWeeklyBlock(startBlock.id, e)}
+                                      className="rounded p-0.5 text-white/80 hover:bg-black/20 hover:text-white flex-shrink-0"
+                                      title="일정 삭제"
+                                    >
+                                      <X className="h-2.5 w-2.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex items-start justify-between gap-1">
+                                      <span className="text-[10px] font-semibold opacity-90 truncate">
+                                        {cat?.name} ({startBlock.durationHours}h)
+                                      </span>
+                                      <button
+                                        onClick={e => handleDeleteWeeklyBlock(startBlock.id, e)}
+                                        className="rounded p-0.5 text-white/80 hover:bg-black/20 hover:text-white flex-shrink-0"
+                                        title="일정 삭제"
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                    <div className="truncate text-xs font-bold leading-tight my-auto" title={startBlock.title}>
+                                      {startBlock.title}
+                                    </div>
+                                    <div className="text-[9px] opacity-80">
+                                      {formatHour(startBlock.startHour)} ~ {formatHour(startBlock.startHour + startBlock.durationHours)}
+                                    </div>
+                                  </>
+                                )}
                               </div>
-                              <div className="truncate text-xs font-bold leading-tight" title={startBlock.title}>
-                                {startBlock.title}
-                              </div>
-                              <div className="text-[9px] opacity-75">
-                                {formatHour(startBlock.startHour)} ~ {formatHour(startBlock.startHour + startBlock.durationHours)}
-                              </div>
-                            </div>
-                          )}
+                            )}
 
-                          {/* 빈 슬롯 가이드 */}
-                          {!startBlock && !isOccupiedByPrev && (
-                            <div className="h-full w-full rounded-lg border border-dashed border-transparent hover:border-neutral-300 transition" />
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
+                            {/* 빈 슬롯 가이드 */}
+                            {!startBlock && !isOccupiedByPrev && (
+                              <div className="h-full w-full rounded border border-dashed border-transparent hover:border-blue-300 hover:bg-blue-50/20 transition" />
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -1190,45 +1247,59 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                 </div>
 
                 <div className="space-y-1">
-                  {HOURS.map(hour => {
-                    const block = feedbackDayWeeklyBlocks.find(b => b.startHour === hour)
+                  {TIME_SLOTS.map(slot => {
+                    const isHourStart = slot % 1 === 0
+                    const block = feedbackDayWeeklyBlocks.find(
+                      b => Math.abs(b.startHour - slot) < 0.01
+                    )
                     const isOccupiedByPrev = feedbackDayWeeklyBlocks.some(
-                      b => b.startHour < hour && b.startHour + b.durationHours > hour
+                      b => b.startHour < slot && slot < b.startHour + b.durationHours
                     )
                     const cat = block ? categories.find(c => c.id === block.categoryId) : null
+                    const slotCount = block ? Math.round(block.durationHours * 2) : 0
 
                     return (
                       <div
-                        key={hour}
-                        className="relative flex h-12 items-center gap-3 rounded-xl border border-neutral-200/60 bg-white px-3 text-xs"
+                        key={slot}
+                        className={`relative flex h-8 items-center gap-3 rounded-lg border px-2.5 text-xs transition ${
+                          isHourStart
+                            ? 'border-neutral-200/80 bg-white font-medium'
+                            : 'border-dashed border-neutral-100 bg-neutral-50/30'
+                        }`}
                       >
-                        <span className="w-12 font-medium text-neutral-400 text-[11px]">
-                          {formatHour(hour)}
+                        <span
+                          className={`w-12 font-medium select-none ${
+                            isHourStart
+                              ? 'text-neutral-700 text-[11px] font-bold'
+                              : 'text-neutral-400 text-[10px]'
+                          }`}
+                        >
+                          {formatHour(slot)}
                         </span>
 
                         {block && (
                           <div
                             style={{
-                              height: `calc(${block.durationHours * 100}% + ${(block.durationHours - 1) * 4}px)`,
+                              height: `calc(${slotCount * 100}% + ${(slotCount - 1) * 4}px)`,
                               backgroundColor: cat?.color || '#3b82f6',
                               zIndex: 10
                             }}
                             className="absolute left-16 right-2 top-0.5 rounded-xl p-2 text-white shadow-md flex items-center justify-between"
                           >
-                            <div>
-                              <div className="font-bold text-xs">{block.title}</div>
-                              <div className="text-[10px] opacity-85">
+                            <div className="min-w-0 pr-2">
+                              <div className="font-bold text-xs truncate">{block.title}</div>
+                              <div className="text-[10px] opacity-85 truncate">
                                 {cat?.name} ({formatHour(block.startHour)} ~ {formatHour(block.startHour + block.durationHours)})
                               </div>
                             </div>
-                            <span className="rounded bg-black/20 px-2 py-0.5 text-[10px] font-semibold">
+                            <span className="rounded bg-black/20 px-2 py-0.5 text-[10px] font-semibold flex-shrink-0">
                               {block.durationHours}h
                             </span>
                           </div>
                         )}
 
-                        {!block && !isOccupiedByPrev && (
-                          <span className="text-neutral-300 text-[11px]">- 계획 없음 -</span>
+                        {!block && !isOccupiedByPrev && isHourStart && (
+                          <span className="text-neutral-300 text-[10px] select-none">- 계획 없음 -</span>
                         )}
                       </div>
                     )
@@ -1252,10 +1323,11 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                   className="space-y-1"
                   onMouseUp={handleMouseUpFeedback}
                 >
-                  {HOURS.map(hour => {
-                    const block = dailyBlocks.find(b => b.startHour === hour)
+                  {TIME_SLOTS.map(slot => {
+                    const isHourStart = slot % 1 === 0
+                    const block = dailyBlocks.find(b => Math.abs(b.startHour - slot) < 0.01)
                     const isOccupiedByPrev = dailyBlocks.some(
-                      b => b.startHour < hour && b.endHour > hour
+                      b => b.startHour < slot && slot < b.endHour
                     )
                     const cat = block ? categories.find(c => c.id === block.categoryId) : null
 
@@ -1264,28 +1336,38 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                       isSelectingTime &&
                       selectionStartHour !== null &&
                       selectionEndHour !== null &&
-                      hour >= Math.min(selectionStartHour, selectionEndHour) &&
-                      hour <= Math.max(selectionStartHour, selectionEndHour)
+                      slot >= Math.min(selectionStartHour, selectionEndHour) &&
+                      slot < Math.max(selectionStartHour, selectionEndHour)
+
+                    const slotCount = block ? Math.round((block.endHour - block.startHour) * 2) : 0
 
                     return (
                       <div
-                        key={hour}
-                        onMouseDown={() => handleMouseDownFeedback(hour)}
-                        onMouseEnter={() => handleMouseEnterFeedback(hour)}
-                        className={`relative flex h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 text-xs transition ${
+                        key={slot}
+                        onMouseDown={() => handleMouseDownFeedback(slot)}
+                        onMouseEnter={() => handleMouseEnterFeedback(slot)}
+                        className={`relative flex h-8 cursor-pointer items-center gap-3 rounded-lg border px-2.5 text-xs transition ${
                           isSelected
                             ? 'border-blue-500 bg-blue-50/70 ring-1 ring-blue-500'
-                            : 'border-neutral-200/70 hover:bg-neutral-50 bg-white'
+                            : isHourStart
+                            ? 'border-neutral-200/80 hover:bg-neutral-50 bg-white'
+                            : 'border-dashed border-neutral-100 hover:bg-neutral-50 bg-neutral-50/30'
                         }`}
                       >
-                        <span className="w-12 font-medium text-neutral-400 text-[11px]">
-                          {formatHour(hour)}
+                        <span
+                          className={`w-12 font-medium select-none ${
+                            isHourStart
+                              ? 'text-neutral-700 text-[11px] font-bold'
+                              : 'text-neutral-400 text-[10px]'
+                          }`}
+                        >
+                          {formatHour(slot)}
                         </span>
 
                         {block && (
                           <div
                             style={{
-                              height: `calc(${(block.endHour - block.startHour) * 100}% + ${(block.endHour - block.startHour - 1) * 4}px)`,
+                              height: `calc(${slotCount * 100}% + ${(slotCount - 1) * 4}px)`,
                               zIndex: 10
                             }}
                             className={`absolute left-16 right-2 top-0.5 rounded-xl p-2 shadow-md flex items-center justify-between text-white ${
@@ -1346,15 +1428,15 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                           </div>
                         )}
 
-                        {!block && !isOccupiedByPrev && !isSelected && (
-                          <span className="text-neutral-400 text-[11px]">
+                        {!block && !isOccupiedByPrev && !isSelected && isHourStart && (
+                          <span className="text-neutral-400 text-[10px] select-none">
                             + 클릭 또는 드래그하여 실행 피드백 입력
                           </span>
                         )}
 
                         {isSelected && (
-                          <span className="text-blue-600 font-semibold text-[11px]">
-                            선택 중 ({formatHour(Math.min(selectionStartHour || hour, hour))} ~ {formatHour(Math.max(selectionStartHour || hour, hour) + 1)})
+                          <span className="text-blue-600 font-semibold text-[11px] select-none">
+                            선택 중 ({formatHour(Math.min(selectionStartHour || slot, slot))} ~ {formatHour(Math.max(selectionStartHour || slot, slot) + 0.5)})
                           </span>
                         )}
                       </div>

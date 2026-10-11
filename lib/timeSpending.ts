@@ -117,10 +117,14 @@ export function getDaysOfWeek(monday: Date): { dayIndex: number; name: string; d
   })
 }
 
-// 시간 레이블 포맷 (예: 5 -> 05:00, 12 -> 12:00, 24 -> 24:00)
+// 시간 레이블 포맷 (예: 5 -> 05:00, 5.5 -> 05:30, 6.5 -> 06:30, 24 -> 24:00)
 export function formatHour(hour: number): string {
-  const h = String(hour).padStart(2, '0')
-  return `${h}:00`
+  const totalMinutes = Math.round(hour * 60)
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  const hh = String(h).padStart(2, '0')
+  const mm = String(m).padStart(2, '0')
+  return `${hh}:${mm}`
 }
 
 // Firestore 로드
