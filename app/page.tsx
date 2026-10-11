@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CreditCard, HelpCircle, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, TrendingUp, Wallet, X, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, CalendarCheck, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CreditCard, HelpCircle, Home, Landmark, LogOut, Menu, Plus, Settings, Target, Trash2, TrendingUp, Wallet, X, RefreshCw, CheckCircle2, AlertCircle, Clock } from 'lucide-react'
 import {
   categories as defaultCategories,
   defaultCategoryGroups,
@@ -32,8 +32,15 @@ import {
   loadProfitFirstFromFirestore,
   saveProfitFirstToFirestore
 } from '@/lib/firestore'
+import {
+  type TimeSpendingData,
+  defaultTimeSpendingData,
+  loadTimeSpendingFromFirestore,
+  saveTimeSpendingToFirestore
+} from '@/lib/timeSpending'
+import TimeSpendingView from '@/components/TimeSpendingView'
 
-type Page = 'dashboard' | 'calendar' | 'budget' | 'transactions' | 'accounts' | 'annual' | 'profit_first' | 'settings'
+type Page = 'dashboard' | 'calendar' | 'budget' | 'transactions' | 'accounts' | 'annual' | 'profit_first' | 'time_spending' | 'settings'
 
 const typeLabel: Record<TransactionType, string> = {
   income: '수입',
@@ -269,6 +276,16 @@ export default function Page() {
     }
   }
 
+  const [timeSpendingData, setTimeSpendingData] = useState<TimeSpendingData>(defaultTimeSpendingData)
+
+  const persistTimeSpending = (next: TimeSpendingData) => {
+    setTimeSpendingData(next)
+    if (currentUser) {
+      localStorage.setItem(`sobinote-timespending-${currentUser}`, JSON.stringify(next))
+      saveTimeSpendingToFirestore(currentUser, next)
+    }
+  }
+
   const [notionConfig, setNotionConfig] = useState<NotionConfig>({ enabled: false })
   const [notionSyncing, setNotionSyncing] = useState(false)
   const [notionSyncResult, setNotionSyncResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
@@ -461,6 +478,17 @@ export default function Page() {
       setProfitFirstMonths([])
     }
 
+    const savedTimeSpending = localStorage.getItem(`sobinote-timespending-${phone}`)
+    if (savedTimeSpending) {
+      try {
+        setTimeSpendingData(JSON.parse(savedTimeSpending))
+      } catch {
+        setTimeSpendingData(defaultTimeSpendingData)
+      }
+    } else {
+      setTimeSpendingData(defaultTimeSpendingData)
+    }
+
     const savedNotion = localStorage.getItem(`sobinote-notion-${phone}`)
     if (savedNotion) {
       try {
@@ -477,12 +505,13 @@ export default function Page() {
 
     // 2. Fetch from Firestore to sync latest across devices
     try {
-      const [cloudData, cloudAccounts, cloudProfile, cloudSettings, cloudProfitFirst] = await Promise.all([
+      const [cloudData, cloudAccounts, cloudProfile, cloudSettings, cloudProfitFirst, cloudTimeSpending] = await Promise.all([
         loadUserDataFromFirestore(phone),
         loadAccountsFromFirestore(phone),
         getUserProfile(phone),
         loadUserSettingsFromFirestore(phone),
-        loadProfitFirstFromFirestore(phone)
+        loadProfitFirstFromFirestore(phone),
+        loadTimeSpendingFromFirestore(phone)
       ])
 
       if (cloudData) {
@@ -521,6 +550,10 @@ export default function Page() {
         const cleanPF = Array.isArray(cloudProfitFirst) ? cloudProfitFirst : []
         setProfitFirstMonths(cleanPF)
         localStorage.setItem(`sobinote-profitfirst-${phone}`, JSON.stringify(cleanPF))
+      }
+      if (cloudTimeSpending) {
+        setTimeSpendingData(cloudTimeSpending)
+        localStorage.setItem(`sobinote-timespending-${phone}`, JSON.stringify(cloudTimeSpending))
       }
     } catch (e) {
       console.error('Cloud sync error on load:', e)
@@ -595,6 +628,7 @@ export default function Page() {
     { id: 'accounts', label: '계좌 관리', icon: Landmark },
     { id: 'annual', label: '연간 결산', icon: BarChart3 },
     { id: 'profit_first', label: '수익먼저 시스템', icon: TrendingUp },
+    { id: 'time_spending', label: '시간소비', icon: Clock },
     { id: 'settings', label: '설정', icon: Settings }
   ] as const
 
@@ -811,7 +845,7 @@ export default function Page() {
             </button>
           ))}
         </nav>
-        <button className="logout" onClick={() => { localStorage.removeItem('sobinote-session'); setCurrentUser(null); setData({ transactions: [], budgets: [], expectedIncome: 0 }); setAccounts([]) }}>
+        <button className="logout" onClick={() => { localStorage.removeItem('sobinote-session'); setCurrentUser(null); setData({ transactions: [], budgets: [], expectedIncome: 0 }); setAccounts([]); setTimeSpendingData(defaultTimeSpendingData) }}>
           <LogOut /> 로그아웃
         </button>
       </aside>
@@ -888,6 +922,12 @@ export default function Page() {
             <ProfitFirstView
               months={profitFirstMonths}
               onUpdate={persistProfitFirst}
+            />
+          )}
+          {page === 'time_spending' && (
+            <TimeSpendingView
+              data={timeSpendingData}
+              onUpdate={persistTimeSpending}
             />
           )}
           {page === 'settings' && (
