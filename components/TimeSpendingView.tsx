@@ -113,6 +113,20 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
   const [feedbackMemo, setFeedbackMemo] = useState('')
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
+  // 위클리 플래너 30분 단위 정밀 드래그 앤 드롭 상태
+  const [draggingItem, setDraggingItem] = useState<{
+    todoId?: string
+    title: string
+    categoryId: string
+    durationHours: number
+    fromBlockId?: string
+  } | null>(null)
+  const [dragOverTarget, setDragOverTarget] = useState<{
+    dayIndex: number
+    slot: number
+  } | null>(null)
+  const dragGhostRef = useRef<HTMLDivElement | null>(null)
+
   const showToast = (msg: string) => {
     setToastMessage(msg)
     setTimeout(() => {
@@ -247,32 +261,71 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
     showToast(`지난주(${prevWeekKey}) 일정 ${clonedBlocks.length}개를 이번 주로 복사했습니다!`)
   }
 
+  // 드래그 시작 시 마우스 커서 위치와 30분 슬롯이 정확히 일치하도록 컴팩트 고스트 이미지 설정
+  const startDragWithItem = (
+    e: React.DragEvent,
+    payload: {
+      todoId?: string
+      title: string
+      categoryId: string
+      durationHours: number
+      fromBlockId?: string
+    }
+  ) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('application/json', JSON.stringify(payload))
+    if (dragGhostRef.current) {
+      const cat = categories.find(c => c.id === payload.categoryId)
+      dragGhostRef.current.style.backgroundColor = cat?.color || '#3b82f6'
+      dragGhostRef.current.textContent = `${payload.title} (${payload.durationHours}h)`
+      // 마우스 커서가 막대 상단/중앙(14px)에 정확히 위치하도록 고정해 6:30 행에 넣을 때 7:00으로 밀리지 않게 함
+      e.dataTransfer.setDragImage(dragGhostRef.current, 24, 14)
+    }
+    // 브라우저가 dragStart 직후 DOM 변경으로 드래그를 취소하지 않도록 requestAnimationFrame으로 상태 반영
+    requestAnimationFrame(() => {
+      setDraggingItem(payload)
+    })
+  }
+
   // 드래그 앤 드롭: 투두 막대 잡기
   const handleDragStart = (e: React.DragEvent, todo: TimeTodo) => {
-    e.dataTransfer.setData('application/json', JSON.stringify({
+    startDragWithItem(e, {
       todoId: todo.id,
       title: todo.title,
       categoryId: todo.categoryId,
       durationHours: todo.durationHours
-    }))
+    })
   }
 
-  // 드롭 타겟 (요일 dayIndex, 시작 시간 startHour)
+  const handleDragEnd = () => {
+    setDraggingItem(null)
+    setDragOverTarget(null)
+  }
+
+  // 드롭 타겟 (요일 dayIndex, 시작 시간 startHour - 0.5시간=30분 단위)
   const handleDropOnSlot = (e: React.DragEvent, dayIndex: number, startHour: number) => {
     e.preventDefault()
+    e.stopPropagation()
+    setDragOverTarget(null)
+    setDraggingItem(null)
     try {
       const raw = e.dataTransfer.getData('application/json')
-      if (!raw) return
-      const item = JSON.parse(raw) as {
-        todoId?: string
-        title: string
-        categoryId: string
-        durationHours: number
-        fromBlockId?: string
-      }
+      const item = raw
+        ? (JSON.parse(raw) as {
+            todoId?: string
+            title: string
+            categoryId: string
+            durationHours: number
+            fromBlockId?: string
+          })
+        : draggingItem
+      if (!item) return
+
+      // 30분(0.5시간) 단위로 정확히 스냅
+      const snappedStartHour = Math.round(startHour * 2) / 2
 
       // 최대 24시 초과 방지
-      const clampedDuration = Math.min(item.durationHours, 24 - startHour)
+      const clampedDuration = Math.min(item.durationHours, 24 - snappedStartHour)
       if (clampedDuration <= 0) return
 
       const newBlock: WeeklyTimeBlock = {
@@ -281,7 +334,7 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
         title: item.title,
         categoryId: item.categoryId,
         dayOfWeek: dayIndex,
-        startHour,
+        startHour: snappedStartHour,
         durationHours: clampedDuration
       }
 
@@ -299,10 +352,31 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
         }
       }
       onUpdate(updated)
-      showToast(`${daysOfWeek[dayIndex].name}요일 ${formatHour(startHour)}에 배치되었습니다!`)
+      showToast(`${daysOfWeek[dayIndex].name}요일 ${formatHour(snappedStartHour)} ~ ${formatHour(snappedStartHour + clampedDuration)}에 배치되었습니다!`)
     } catch (err) {
       console.error(err)
     }
+  }
+
+  // 배치된 블록 30분 단위 미세 이동 (-0.5h / +0.5h)
+  const handleShiftWeeklyBlock = (id: string, deltaHours: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const target = weeklyBlocks.find(b => b.id === id)
+    if (!target) return
+    const nextStart = Math.round((target.startHour + deltaHours) * 2) / 2
+    if (nextStart < 5 || nextStart + target.durationHours > 24) return
+
+    const updated = {
+      ...data,
+      weeklyPlanners: {
+        ...data.weeklyPlanners,
+        [currentWeekKey]: weeklyBlocks.map(b =>
+          b.id === id ? { ...b, startHour: nextStart } : b
+        )
+      }
+    }
+    onUpdate(updated)
+    showToast(`${formatHour(nextStart)} ~ ${formatHour(nextStart + target.durationHours)}으로 이동했습니다.`)
   }
 
   const handleDeleteWeeklyBlock = (id: string, e?: React.MouseEvent) => {
@@ -487,6 +561,12 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
 
   return (
     <div className="space-y-8 pb-16">
+      {/* 드래그 시 커서와 30분 슬롯이 정확히 일치하도록 돕는 1슬롯 높이(28px) 컴팩트 고스트 */}
+      <div
+        ref={dragGhostRef}
+        className="fixed -top-96 -left-96 z-50 flex h-7 items-center rounded-lg px-3 text-xs font-bold text-white shadow-lg pointer-events-none whitespace-nowrap"
+      />
+
       {/* 토스트 알림 */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-2xl bg-neutral-900 px-4 py-3 text-sm font-medium text-white shadow-2xl animate-in fade-in slide-in-from-bottom-3 duration-200">
@@ -823,6 +903,7 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                         key={todo.id}
                         draggable
                         onDragStart={e => handleDragStart(e, todo)}
+                        onDragEnd={handleDragEnd}
                         style={{
                           width: `${barWidth}px`,
                           borderColor: cat.color,
@@ -899,7 +980,7 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                 </h2>
               </div>
               <p className="mt-1 text-xs text-neutral-500">
-                위에서 형성된 시간 막대를 월화수목금토일 플래너로 끌어서 넣으세요. am5시부터 pm12시까지 한 화면에 펼쳐집니다.
+                위에서 형성된 시간 막대를 월화수목금토일 플래너로 끌어서 넣으세요. am5시부터 pm12시까지 30분 단위로 한 화면에 펼쳐집니다.
               </p>
             </div>
 
@@ -975,7 +1056,14 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
           {/* ============================================================== */}
           {/* 위클리 플래너 시간대별 그리드 테이블 (05:00 ~ 24:00, 월~일) */}
           {/* ============================================================== */}
-          <div className="overflow-x-auto rounded-2xl border border-neutral-200">
+          <div
+            className="overflow-x-auto rounded-2xl border border-neutral-200"
+            onDragLeave={e => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDragOverTarget(null)
+              }
+            }}
+          >
             <table className="min-w-[850px] w-full border-collapse text-left">
               <thead>
                 <tr className="border-b border-neutral-200 bg-neutral-50/80 text-xs text-neutral-600">
@@ -1007,21 +1095,26 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
               <tbody>
                 {TIME_SLOTS.map(slot => {
                   const isHourStart = slot % 1 === 0
+                  const isTimeHighlighted =
+                    dragOverTarget !== null && Math.abs(dragOverTarget.slot - slot) < 0.01
+
                   return (
                     <tr
                       key={slot}
-                      className={`transition hover:bg-blue-50/20 ${
+                      className={`transition ${
                         isHourStart
-                          ? 'border-b border-neutral-200'
-                          : 'border-b border-dashed border-neutral-100'
+                          ? 'border-b border-neutral-200/80'
+                          : 'border-b border-dashed border-neutral-200/60'
                       }`}
                     >
-                      {/* 시간 축 (05:00 ~ 24:00) */}
+                      {/* 시간 축 (05:00 ~ 24:00, 30분 단위) */}
                       <td
-                        className={`w-16 p-1 text-center border-r border-neutral-200 bg-neutral-50/50 select-none ${
-                          isHourStart
-                            ? 'text-[11px] font-bold text-neutral-700'
-                            : 'text-[10px] text-neutral-400'
+                        className={`w-16 p-1 text-center border-r border-neutral-200 select-none transition ${
+                          isTimeHighlighted
+                            ? 'bg-blue-600 text-[11px] font-bold text-white'
+                            : isHourStart
+                            ? 'bg-neutral-50/80 text-[11px] font-bold text-neutral-800'
+                            : 'bg-neutral-50/30 text-[10px] font-medium text-neutral-500'
                         }`}
                       >
                         {formatHour(slot)}
@@ -1046,50 +1139,122 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                           : null
 
                         const slotCount = startBlock ? Math.round(startBlock.durationHours * 2) : 0
+                        const isBeingDragged =
+                          draggingItem?.fromBlockId && startBlock?.id === draggingItem.fromBlockId
+
+                        // 드래그 중 현재 셀이 드롭 시작점인지 / 드롭 범위에 포함되는지 확인
+                        const isDropStart =
+                          dragOverTarget !== null &&
+                          dragOverTarget.dayIndex === d.dayIndex &&
+                          Math.abs(dragOverTarget.slot - slot) < 0.01
+                        const previewDuration = draggingItem
+                          ? Math.min(draggingItem.durationHours, 24 - slot)
+                          : 0.5
+                        const previewSlotCount = Math.max(1, Math.round(previewDuration * 2))
+                        const previewCat = draggingItem
+                          ? categories.find(c => c.id === draggingItem.categoryId)
+                          : null
+                        const isInDropRange =
+                          dragOverTarget !== null &&
+                          draggingItem !== null &&
+                          dragOverTarget.dayIndex === d.dayIndex &&
+                          slot >= dragOverTarget.slot &&
+                          slot < Math.min(24, dragOverTarget.slot + draggingItem.durationHours)
 
                         return (
                           <td
                             key={d.dayIndex}
-                            onDragOver={e => e.preventDefault()}
+                            onDragEnter={e => {
+                              e.preventDefault()
+                              setDragOverTarget({ dayIndex: d.dayIndex, slot })
+                            }}
+                            onDragOver={e => {
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
+                              if (
+                                !dragOverTarget ||
+                                dragOverTarget.dayIndex !== d.dayIndex ||
+                                Math.abs(dragOverTarget.slot - slot) > 0.01
+                              ) {
+                                setDragOverTarget({ dayIndex: d.dayIndex, slot })
+                              }
+                            }}
                             onDrop={e => handleDropOnSlot(e, d.dayIndex, slot)}
-                            className={`relative h-7 p-0.5 border-r last:border-r-0 border-neutral-100 transition ${
-                              d.isToday ? 'bg-blue-50/20' : ''
-                            } hover:bg-blue-50/40`}
+                            className={`relative h-8 p-0.5 border-r last:border-r-0 border-neutral-100 transition ${
+                              isInDropRange
+                                ? 'bg-blue-100/70'
+                                : d.isToday
+                                ? 'bg-blue-50/20'
+                                : ''
+                            }`}
                           >
+                            {/* 드래그 중 실시간 30분 단위 드롭 미리보기 */}
+                            {isDropStart && draggingItem && (
+                              <div
+                                style={{
+                                  height: `calc(${previewSlotCount * 100}% + ${(previewSlotCount - 1) * 1}px - 2px)`,
+                                  borderColor: previewCat?.color || '#2563eb',
+                                  backgroundColor: `${previewCat?.color || '#2563eb'}25`,
+                                  zIndex: 30
+                                }}
+                                className="pointer-events-none absolute inset-x-0.5 top-0.5 rounded-lg border-2 border-dashed px-2 py-1 flex items-center justify-between shadow-sm"
+                              >
+                                <span className="truncate text-[11px] font-bold text-neutral-900 bg-white/90 px-1.5 py-0.5 rounded shadow-2xs">
+                                  {formatHour(slot)} ~ {formatHour(slot + previewDuration)} · {draggingItem.title}
+                                </span>
+                              </div>
+                            )}
+
                             {startBlock && (
                               <div
                                 draggable
                                 onDragStart={e => {
-                                  e.dataTransfer.setData(
-                                    'application/json',
-                                    JSON.stringify({
-                                      todoId: startBlock.todoId,
-                                      title: startBlock.title,
-                                      categoryId: startBlock.categoryId,
-                                      durationHours: startBlock.durationHours,
-                                      fromBlockId: startBlock.id
-                                    })
-                                  )
+                                  startDragWithItem(e, {
+                                    todoId: startBlock.todoId,
+                                    title: startBlock.title,
+                                    categoryId: startBlock.categoryId,
+                                    durationHours: startBlock.durationHours,
+                                    fromBlockId: startBlock.id
+                                  })
                                 }}
+                                onDragEnd={handleDragEnd}
                                 style={{
                                   height: `calc(${slotCount * 100}% + ${(slotCount - 1) * 1}px - 2px)`,
                                   backgroundColor: cat?.color || '#3b82f6',
                                   zIndex: 20
                                 }}
-                                className="group absolute inset-x-0.5 top-0.5 rounded-lg p-1 text-white shadow-md transition hover:ring-2 hover:ring-white flex flex-col justify-between overflow-hidden cursor-grab active:cursor-grabbing select-none"
+                                className={`group absolute inset-x-0.5 top-0.5 rounded-lg p-1 text-white shadow-md transition hover:ring-2 hover:ring-white flex flex-col justify-between overflow-hidden cursor-grab active:cursor-grabbing select-none ${
+                                  draggingItem ? 'pointer-events-none' : ''
+                                } ${isBeingDragged ? 'opacity-35' : ''}`}
                               >
                                 {slotCount <= 1 ? (
                                   <div className="flex h-full items-center justify-between gap-1 text-[10px] leading-tight">
                                     <span className="font-bold truncate" title={startBlock.title}>
                                       {startBlock.title} ({formatHour(startBlock.startHour)}~{formatHour(startBlock.startHour + startBlock.durationHours)})
                                     </span>
-                                    <button
-                                      onClick={e => handleDeleteWeeklyBlock(startBlock.id, e)}
-                                      className="rounded p-0.5 text-white/80 hover:bg-black/20 hover:text-white flex-shrink-0"
-                                      title="일정 삭제"
-                                    >
-                                      <X className="h-2.5 w-2.5" />
-                                    </button>
+                                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                                      <button
+                                        onClick={e => handleShiftWeeklyBlock(startBlock.id, -0.5, e)}
+                                        className="rounded px-1 py-0.2 text-[9px] bg-black/15 hover:bg-black/35 text-white opacity-0 group-hover:opacity-100 transition"
+                                        title="30분 앞당기기 (-30분)"
+                                      >
+                                        -30분
+                                      </button>
+                                      <button
+                                        onClick={e => handleShiftWeeklyBlock(startBlock.id, 0.5, e)}
+                                        className="rounded px-1 py-0.2 text-[9px] bg-black/15 hover:bg-black/35 text-white opacity-0 group-hover:opacity-100 transition"
+                                        title="30분 뒤로 미루기 (+30분)"
+                                      >
+                                        +30분
+                                      </button>
+                                      <button
+                                        onClick={e => handleDeleteWeeklyBlock(startBlock.id, e)}
+                                        className="rounded p-0.5 text-white/80 hover:bg-black/20 hover:text-white"
+                                        title="일정 삭제"
+                                      >
+                                        <X className="h-2.5 w-2.5" />
+                                      </button>
+                                    </div>
                                   </div>
                                 ) : (
                                   <>
@@ -1097,18 +1262,34 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                                       <span className="text-[10px] font-semibold opacity-90 truncate">
                                         {cat?.name} ({startBlock.durationHours}h)
                                       </span>
-                                      <button
-                                        onClick={e => handleDeleteWeeklyBlock(startBlock.id, e)}
-                                        className="rounded p-0.5 text-white/80 hover:bg-black/20 hover:text-white flex-shrink-0"
-                                        title="일정 삭제"
-                                      >
-                                        <X className="h-3 w-3" />
-                                      </button>
+                                      <div className="flex items-center gap-0.5 flex-shrink-0">
+                                        <button
+                                          onClick={e => handleShiftWeeklyBlock(startBlock.id, -0.5, e)}
+                                          className="rounded px-1 py-0.5 text-[9px] font-bold bg-black/15 hover:bg-black/35 text-white opacity-0 group-hover:opacity-100 transition"
+                                          title="30분 앞당기기 (-30분)"
+                                        >
+                                          -30분
+                                        </button>
+                                        <button
+                                          onClick={e => handleShiftWeeklyBlock(startBlock.id, 0.5, e)}
+                                          className="rounded px-1 py-0.5 text-[9px] font-bold bg-black/15 hover:bg-black/35 text-white opacity-0 group-hover:opacity-100 transition"
+                                          title="30분 뒤로 미루기 (+30분)"
+                                        >
+                                          +30분
+                                        </button>
+                                        <button
+                                          onClick={e => handleDeleteWeeklyBlock(startBlock.id, e)}
+                                          className="rounded p-0.5 text-white/80 hover:bg-black/20 hover:text-white"
+                                          title="일정 삭제"
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </button>
+                                      </div>
                                     </div>
                                     <div className="truncate text-xs font-bold leading-tight my-auto" title={startBlock.title}>
                                       {startBlock.title}
                                     </div>
-                                    <div className="text-[9px] opacity-80">
+                                    <div className="text-[9px] opacity-90 font-medium">
                                       {formatHour(startBlock.startHour)} ~ {formatHour(startBlock.startHour + startBlock.durationHours)}
                                     </div>
                                   </>
@@ -1117,7 +1298,7 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                             )}
 
                             {/* 빈 슬롯 가이드 */}
-                            {!startBlock && !isOccupiedByPrev && (
+                            {!startBlock && !isOccupiedByPrev && !isInDropRange && (
                               <div className="h-full w-full rounded border border-dashed border-transparent hover:border-blue-300 hover:bg-blue-50/20 transition" />
                             )}
                           </td>
@@ -1370,6 +1551,8 @@ export default function TimeSpendingView({ data, onUpdate }: Props) {
                               zIndex: 10
                             }}
                             className={`absolute left-16 right-2 top-0.5 rounded-xl p-2 shadow-md flex items-center justify-between text-white ${
+                              isSelectingTime ? 'pointer-events-none' : ''
+                            } ${
                               block.status === 'done'
                                 ? 'bg-emerald-600'
                                 : block.status === 'partial'
