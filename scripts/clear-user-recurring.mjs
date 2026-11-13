@@ -18,7 +18,7 @@ if (!config.apiKey || !config.projectId) {
 
 const app = initializeApp(config)
 const db = getFirestore(app)
-const PHONE = '01025555767'
+const PHONE = process.env.TARGET_PHONE || ''
 
 async function run() {
   console.log(`\n=== 1. Reading current userData doc for ${PHONE} ===`)
