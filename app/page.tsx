@@ -28,9 +28,15 @@ import {
   saveUserSettingsToFirestore,
   type ProfitFirstAccount,
   type ProfitFirstMonth,
+  type ProfitFirstPeriod,
+  PROFIT_FIRST_PERIODS,
+  type ProfitFirstTargetMap,
   defaultProfitFirstAccounts,
+  defaultProfitFirstTargets,
   loadProfitFirstFromFirestore,
-  saveProfitFirstToFirestore
+  saveProfitFirstToFirestore,
+  loadProfitFirstTargetsFromFirestore,
+  saveProfitFirstTargetsToFirestore
 } from '@/lib/firestore'
 import {
   type TimeSpendingData,
@@ -267,12 +273,22 @@ export default function Page() {
   const [itemModalAccount, setItemModalAccount] = useState<Account | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
   const [profitFirstMonths, setProfitFirstMonths] = useState<ProfitFirstMonth[]>([])
+  const [profitFirstTargets, setProfitFirstTargets] = useState<ProfitFirstTargetMap>(defaultProfitFirstTargets)
+  const [pfSubTab, setPfSubTab] = useState<'current' | 'targets' | 'cumulative'>('current')
 
   const persistProfitFirst = (next: ProfitFirstMonth[]) => {
     setProfitFirstMonths(next)
     if (currentUser) {
       localStorage.setItem(`sobinote-profitfirst-${currentUser}`, JSON.stringify(next))
       saveProfitFirstToFirestore(currentUser, next)
+    }
+  }
+
+  const persistProfitFirstTargets = (next: ProfitFirstTargetMap) => {
+    setProfitFirstTargets(next)
+    if (currentUser) {
+      localStorage.setItem(`sobinote-profitfirst-targets-${currentUser}`, JSON.stringify(next))
+      saveProfitFirstTargetsToFirestore(currentUser, next)
     }
   }
 
@@ -478,6 +494,18 @@ export default function Page() {
       setProfitFirstMonths([])
     }
 
+    const savedPFTargets = localStorage.getItem(`sobinote-profitfirst-targets-${phone}`)
+    if (savedPFTargets) {
+      try {
+        const parsed = JSON.parse(savedPFTargets)
+        setProfitFirstTargets({ ...defaultProfitFirstTargets, ...parsed })
+      } catch {
+        setProfitFirstTargets(defaultProfitFirstTargets)
+      }
+    } else {
+      setProfitFirstTargets(defaultProfitFirstTargets)
+    }
+
     const savedTimeSpending = localStorage.getItem(`sobinote-timespending-${phone}`)
     if (savedTimeSpending) {
       try {
@@ -505,12 +533,13 @@ export default function Page() {
 
     // 2. Fetch from Firestore to sync latest across devices
     try {
-      const [cloudData, cloudAccounts, cloudProfile, cloudSettings, cloudProfitFirst, cloudTimeSpending] = await Promise.all([
+      const [cloudData, cloudAccounts, cloudProfile, cloudSettings, cloudProfitFirst, cloudPFTargets, cloudTimeSpending] = await Promise.all([
         loadUserDataFromFirestore(phone),
         loadAccountsFromFirestore(phone),
         getUserProfile(phone),
         loadUserSettingsFromFirestore(phone),
         loadProfitFirstFromFirestore(phone),
+        loadProfitFirstTargetsFromFirestore(phone),
         loadTimeSpendingFromFirestore(phone)
       ])
 
@@ -550,6 +579,11 @@ export default function Page() {
         const cleanPF = Array.isArray(cloudProfitFirst) ? cloudProfitFirst : []
         setProfitFirstMonths(cleanPF)
         localStorage.setItem(`sobinote-profitfirst-${phone}`, JSON.stringify(cleanPF))
+      }
+      if (cloudPFTargets) {
+        const merged = { ...defaultProfitFirstTargets, ...cloudPFTargets }
+        setProfitFirstTargets(merged)
+        localStorage.setItem(`sobinote-profitfirst-targets-${phone}`, JSON.stringify(merged))
       }
       if (cloudTimeSpending) {
         setTimeSpendingData(cloudTimeSpending)
@@ -836,13 +870,57 @@ export default function Page() {
         </div>
         <nav>
           {nav.map(n => (
-            <button
-              key={n.id}
-              className={page === n.id ? 'active' : ''}
-              onClick={() => { setPage(n.id); setMobileNav(false) }}
-            >
-              <n.icon />{n.label}
-            </button>
+            <div key={n.id} className="sidebar-nav-group">
+              <button
+                className={page === n.id ? 'active' : ''}
+                onClick={() => {
+                  setPage(n.id)
+                  if (n.id === 'profit_first' && page !== 'profit_first') {
+                    setPfSubTab('current')
+                  }
+                  setMobileNav(false)
+                }}
+              >
+                <n.icon />{n.label}
+              </button>
+              {n.id === 'profit_first' && (
+                <div className="sidebar-subnav">
+                  <button
+                    type="button"
+                    className={page === 'profit_first' && pfSubTab === 'current' ? 'sub-active' : ''}
+                    onClick={() => {
+                      setPage('profit_first')
+                      setPfSubTab('current')
+                      setMobileNav(false)
+                    }}
+                  >
+                    <span className="sub-dot" />현재 상황
+                  </button>
+                  <button
+                    type="button"
+                    className={page === 'profit_first' && pfSubTab === 'targets' ? 'sub-active' : ''}
+                    onClick={() => {
+                      setPage('profit_first')
+                      setPfSubTab('targets')
+                      setMobileNav(false)
+                    }}
+                  >
+                    <span className="sub-dot" />목표 할당률
+                  </button>
+                  <button
+                    type="button"
+                    className={page === 'profit_first' && pfSubTab === 'cumulative' ? 'sub-active' : ''}
+                    onClick={() => {
+                      setPage('profit_first')
+                      setPfSubTab('cumulative')
+                      setMobileNav(false)
+                    }}
+                  >
+                    <span className="sub-dot" />누적관리
+                  </button>
+                </div>
+              )}
+            </div>
           ))}
         </nav>
         <button className="logout" onClick={() => { localStorage.removeItem('sobinote-session'); setCurrentUser(null); setData({ transactions: [], budgets: [], expectedIncome: 0 }); setAccounts([]); setTimeSpendingData(defaultTimeSpendingData) }}>
@@ -855,7 +933,14 @@ export default function Page() {
           <button className="menu-btn" onClick={() => setMobileNav(!mobileNav)}><Menu /></button>
           <div>
             <p className="eyebrow">PERSONAL FINANCE</p>
-            <h1>{nav.find(n => n.id === page)?.label}</h1>
+            <h1>
+              {nav.find(n => n.id === page)?.label}
+              {page === 'profit_first' && (
+                <span style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--primary)', marginLeft: '0.6rem' }}>
+                  · {pfSubTab === 'current' ? '현재 상황' : pfSubTab === 'targets' ? '목표 할당률' : '누적관리'}
+                </span>
+              )}
+            </h1>
           </div>
           <button className="profile-btn" onClick={() => setPage('settings')} title="설정으로 이동">
             <span className="profile-avatar">
@@ -922,6 +1007,10 @@ export default function Page() {
             <ProfitFirstView
               months={profitFirstMonths}
               onUpdate={persistProfitFirst}
+              targets={profitFirstTargets}
+              onUpdateTargets={persistProfitFirstTargets}
+              subTab={pfSubTab}
+              onChangeSubTab={setPfSubTab}
             />
           )}
           {page === 'time_spending' && (
@@ -2523,23 +2612,119 @@ function Annual({ data }: { data: MonthlyData }) {
   )
 }
 
-function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onUpdate: (m: ProfitFirstMonth[]) => void }) {
+function ProfitFirstView({
+  months,
+  onUpdate,
+  targets,
+  onUpdateTargets,
+  subTab,
+  onChangeSubTab
+}: {
+  months: ProfitFirstMonth[]
+  onUpdate: (m: ProfitFirstMonth[]) => void
+  targets: ProfitFirstTargetMap
+  onUpdateTargets: (t: ProfitFirstTargetMap) => void
+  subTab: 'current' | 'targets' | 'cumulative'
+  onChangeSubTab: (tab: 'current' | 'targets' | 'cumulative') => void
+}) {
   const ymLabel = (ym: string) => {
     const [y, m] = ym.split('-')
     return `${y}년 ${Number(m)}월`
   }
 
+  const formatRate = (rate: number) => {
+    if (!Number.isFinite(rate) || rate === 0) return '0%'
+    const rounded = Math.round(rate * 10) / 10
+    return `${rounded}%`
+  }
+
+  // Chronological ascending order (oldest month = 1개월 차)
+  const sortedMonthsAsc = useMemo(() => {
+    return [...months].sort((a, b) => a.month.localeCompare(b.month))
+  }, [months])
+
+  // 방식 B: 누적 개월 수(N개월 차)에 따른 자동 목표 기간 매칭
+  const getAutoPeriodByOrder = (order: number): ProfitFirstPeriod => {
+    if (order <= 1) return '1m'
+    if (order <= 3) return 'q1'
+    if (order <= 6) return 'h1'
+    if (order <= 9) return 'q3'
+    return 'y1'
+  }
+
+  const getPeriodLabel = (p: ProfitFirstPeriod) => {
+    return PROFIT_FIRST_PERIODS.find(x => x.id === p)?.label || '1달'
+  }
+
+  const defaultNames = defaultProfitFirstAccounts.map(a => a.name)
+
+  // 모든 계좌 이름 목록 (기본 계좌 + 사용자가 추가한 계좌)
+  const allAccountNames = useMemo(() => {
+    const set = new Set<string>(defaultNames)
+    months.forEach(m => m.accounts.forEach(a => {
+      if (a.name?.trim()) set.add(a.name.trim())
+    }))
+    Object.values(targets).forEach(periodMap => {
+      Object.keys(periodMap || {}).forEach(k => {
+        if (k?.trim()) set.add(k.trim())
+      })
+    })
+    return Array.from(set)
+  }, [months, targets, defaultNames])
+
+  // 특정 기간(1달/1분기/반기/3분기/1년)의 계좌별 목표 할당률 조회
+  const getTargetRate = (period: ProfitFirstPeriod, accountName: string, fallback = 0): number => {
+    const periodMap = targets?.[period]
+    if (periodMap && typeof periodMap[accountName] === 'number') {
+      return periodMap[accountName]
+    }
+    return fallback
+  }
+
+  // 특정 기간의 계좌 목표 할당률 업데이트
+  const updateTargetRate = (period: ProfitFirstPeriod, accountName: string, value: number) => {
+    const next: ProfitFirstTargetMap = {
+      ...targets,
+      [period]: {
+        ...(targets[period] || {}),
+        [accountName]: value
+      }
+    }
+    onUpdateTargets(next)
+  }
+
+  // 새 달 생성 (현재 달이 없으면 현재 달, 있으면 가장 최근 달의 다음 달 생성)
   const createNewMonth = () => {
     const now = new Date()
-    const mk = monthKey(now)
-    if (months.find(m => m.month === mk)) return
+    let targetYm = monthKey(now)
 
+    if (months.some(m => m.month === targetYm)) {
+      const latest = [...months].sort((a, b) => b.month.localeCompare(a.month))[0]
+      if (latest) {
+        const [y, m] = latest.month.split('-').map(Number)
+        const nextDate = new Date(y, m, 1)
+        targetYm = monthKey(nextDate)
+      }
+    }
+
+    const nextOrder = months.length + 1
+    const autoPeriod = getAutoPeriodByOrder(nextOrder)
     const lastMonth = months.length > 0 ? months[0] : null
-    const newAccounts: ProfitFirstAccount[] = lastMonth
-      ? lastMonth.accounts.map(a => ({ ...a, id: uid(), actualAmount: 0, improvement: '' }))
-      : defaultProfitFirstAccounts.map(a => ({ ...a, id: uid() }))
+    const baseAccounts = lastMonth ? lastMonth.accounts : defaultProfitFirstAccounts
 
-    onUpdate([{ month: mk, income: 0, accounts: newAccounts }, ...months])
+    const newAccounts: ProfitFirstAccount[] = baseAccounts.map(a => ({
+      ...a,
+      id: uid(),
+      targetPercent: getTargetRate(autoPeriod, a.name, a.targetPercent || 0),
+      actualAmount: 0,
+      improvement: ''
+    }))
+
+    onUpdate([{ month: targetYm, income: 0, accounts: newAccounts }, ...months])
+  }
+
+  const deleteMonth = (monthStr: string) => {
+    onUpdate(months.filter(m => m.month !== monthStr))
   }
 
   const updateMonth = (monthStr: string, updater: (m: ProfitFirstMonth) => ProfitFirstMonth) => {
@@ -2567,21 +2752,128 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
     }))
   }
 
-  const defaultNames = defaultProfitFirstAccounts.map(a => a.name)
   const [showQA, setShowQA] = useState(false)
+  // 2번 목표할당률 드롭다운 선택 상태 (1달, 1분기, 반기, 3분기, 1년)
+  const [selectedTargetPeriod, setSelectedTargetPeriod] = useState<ProfitFirstPeriod>('1m')
+  // 누적관리 페이지에서 상세 조회할 누적 기간 드롭다운 상태
+  const [selectedCumulativePeriod, setSelectedCumulativePeriod] = useState<ProfitFirstPeriod | 'all'>('q1')
+
+  // 누적 기간별 집계 계산 (1달=1개월, 1분기=3개월, 반기=6개월, 3분기=9개월, 1년=12개월)
+  const computeCumulativeStats = (period: ProfitFirstPeriod | 'all') => {
+    const periodInfo = PROFIT_FIRST_PERIODS.find(p => p.id === period)
+    const sliceCount = period === 'all' ? sortedMonthsAsc.length : (periodInfo?.maxMonths || 1)
+    const targetMonths = sortedMonthsAsc.slice(0, sliceCount)
+    const effectiveTargetPeriod: ProfitFirstPeriod = period === 'all'
+      ? getAutoPeriodByOrder(Math.max(1, sortedMonthsAsc.length))
+      : period
+
+    let totalIncome = 0
+    const accountActualMap: Record<string, number> = {}
+    allAccountNames.forEach(name => { accountActualMap[name] = 0 })
+
+    targetMonths.forEach(m => {
+      const mActualSum = m.accounts.reduce((s, a) => s + (Number(a.actualAmount) || 0), 0)
+      totalIncome += m.income > 0 ? m.income : mActualSum
+      m.accounts.forEach(a => {
+        accountActualMap[a.name] = (accountActualMap[a.name] || 0) + (Number(a.actualAmount) || 0)
+      })
+    })
+
+    const totalActual = Object.values(accountActualMap).reduce((s, v) => s + v, 0)
+    const baseIncome = totalIncome > 0 ? totalIncome : totalActual
+
+    const rows = allAccountNames.map(name => {
+      const actual = accountActualMap[name] || 0
+      const currentRate = baseIncome > 0 ? (actual / baseIncome) * 100 : 0
+      const targetRate = getTargetRate(effectiveTargetPeriod, name, 0)
+      const targetAmount = baseIncome * (targetRate / 100)
+      const deltaAmount = targetAmount - actual
+      const deltaRate = currentRate - targetRate
+      return {
+        name,
+        actual,
+        currentRate,
+        targetRate,
+        targetAmount,
+        deltaAmount,
+        deltaRate
+      }
+    })
+
+    const totalCurrentRate = baseIncome > 0 ? (totalActual / baseIncome) * 100 : 0
+    const totalTargetRate = rows.reduce((s, r) => s + r.targetRate, 0)
+    const totalTargetAmount = rows.reduce((s, r) => s + r.targetAmount, 0)
+    const totalDeltaAmount = totalTargetAmount - totalActual
+
+    return {
+      monthCount: targetMonths.length,
+      maxMonths: sliceCount,
+      totalIncome,
+      totalActual,
+      baseIncome,
+      totalCurrentRate,
+      totalTargetRate,
+      totalTargetAmount,
+      totalDeltaAmount,
+      rows,
+      effectiveTargetPeriod
+    }
+  }
+
+  const latestIncomePreview = useMemo(() => {
+    if (months.length === 0) return 10000000
+    const latest = months[0]
+    const actualSum = latest.accounts.reduce((s, a) => s + (Number(a.actualAmount) || 0), 0)
+    return latest.income > 0 ? latest.income : (actualSum > 0 ? actualSum : 10000000)
+  }, [months])
 
   return (
     <>
+      {/* 상단 헤더 & 서브 메뉴 탭 */}
       <section className="card" style={{ marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>수익먼저 시스템</h2>
-          <button className="btn-primary" onClick={createNewMonth} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
-            <Plus style={{ width: '1rem', height: '1rem' }} /> 이번 달 생성
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.15rem' }}>수익먼저 생각하라 (Profit First)</h2>
+            <p className="muted" style={{ marginTop: '0.35rem', fontSize: '0.82rem' }}>
+              현재 재무상황(현재 할당률)을 진단하고, 1달 · 1분기 · 반기 · 3분기 · 1년 목표 할당률에 맞춰 목표금액을 자동 배정합니다.
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              className="btn-primary"
+              onClick={createNewMonth}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.55rem 1rem', fontSize: '0.85rem' }}
+            >
+              <Plus style={{ width: '1rem', height: '1rem' }} />
+              {months.some(m => m.month === monthKey()) ? '다음 달 추가' : '이번 달 생성'}
+            </button>
+          </div>
+        </div>
+
+        {/* 서브 탭 네비게이션 (사이드바 서브메뉴와 동기화) */}
+        <div className="pf-subtabs">
+          <button
+            type="button"
+            className={`pf-subtab-btn ${subTab === 'current' ? 'active' : ''}`}
+            onClick={() => onChangeSubTab('current')}
+          >
+            1. 현재 상황 (통합표)
+          </button>
+          <button
+            type="button"
+            className={`pf-subtab-btn ${subTab === 'targets' ? 'active' : ''}`}
+            onClick={() => onChangeSubTab('targets')}
+          >
+            2. 목표 할당률 설정 (기간별 입력)
+          </button>
+          <button
+            type="button"
+            className={`pf-subtab-btn ${subTab === 'cumulative' ? 'active' : ''}`}
+            onClick={() => onChangeSubTab('cumulative')}
+          >
+            3. 누적관리 (1달·1분기·반기·3분기·1년)
           </button>
         </div>
-        <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.82rem' }}>
-          Profit First — 매출에서 수익을 먼저 떼어놓고, 나머지로 운영하세요.
-        </p>
 
         {/* Q&A Accordion Header */}
         <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid var(--line)' }}>
@@ -2619,77 +2911,25 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
           {showQA && (
             <div className="pf-qa-content" style={{ marginTop: '0.75rem' }}>
               <div className="pf-qa-item">
-                <h4 className="pf-qa-q">Q1. 수익먼저 시스템이란 무엇이고 각 칸에는 무엇을 적나요?</h4>
+                <h4 className="pf-qa-q">Q1. 「현재 상황」 표와 「목표 할당률」은 어떻게 연동되나요?</h4>
                 <div className="pf-qa-a">
-                  <p>
-                    기존 회계 공식인 <strong>매출 - 비용 = 수익</strong>을 뒤집어 <strong>매출 - 수익 = 비용</strong>으로 운영하는 방식입니다. 수입이 발생하면 정해둔 비율대로 수익·세금·보상을 먼저 떼어두고, 남은 돈으로만 회사를 운영(OpEx)하여 강제로 낭비를 줄입니다.
-                  </p>
-                  <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
-                    <li><strong>수입 (Income):</strong> 해당 월에 들어온 총 매출(입금액)</li>
-                    <li><strong>실적:</strong> 각 계좌에 실제로 배분하거나 사용한 실제 금액</li>
-                    <li><strong>목표 배당률 (%):</strong> 수입 대비 이 계좌에 배분하기로 정한 목표 비율</li>
-                    <li><strong>할당금:</strong> <code>수입 × 목표 배당률</code>로 자동 계산되는 목표 배분액</li>
-                    <li><strong>델타 (차이):</strong> <code>할당금 - 실적</code> (남는 금액은 +, 부족하면 -로 자동 계산)</li>
-                    <li><strong>개선 방향:</strong> 델타를 줄이기 위한 다음 달 액션 플랜(메모)</li>
+                  <ul style={{ margin: '0.2rem 0 0', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
+                    <li><strong>현재 할당률 (%):</strong> 내가 <code>수입</code>과 각 계좌의 <code>실적(금액)</code>을 넣으면 현재 몇 %로 배분되고 있는지 자동으로 계산됩니다.</li>
+                    <li><strong>목표 할당률 (%):</strong> 「목표 할당률」에 입력해 둔 <strong>1달 · 1분기 · 반기 · 3분기 · 1년</strong> 목표치가 누적 개월 차(방식 B)에 맞춰 현재 상황 표에 자동으로 배정됩니다.</li>
+                    <li><strong>목표 금액 (할당금):</strong> <code>수입 × 목표 할당률</code>로 자동 책정됩니다.</li>
+                    <li><strong>델타 (차이):</strong> <code>목표 금액 - 실적</code>으로 목표 대비 과부족 금액이 자동 계산됩니다.</li>
                   </ul>
                 </div>
               </div>
 
               <div className="pf-qa-item">
-                <h4 className="pf-qa-q">Q2. 개선방향이 나오면 다음 달에 어떤 식으로 수정하나요?</h4>
+                <h4 className="pf-qa-q">Q2. 세금 퍼센트와 권장 배분율은 어떻게 잡나요?</h4>
                 <div className="pf-qa-a">
-                  <p>
-                    예를 들어 운영비용 델타가 <strong>-50만원(초과 지출)</strong>이라면 개선 방향에 &quot;불필요한 정기구독 2건 해지&quot;와 같이 구체적인 행동을 적어둡니다.
-                  </p>
-                  <p style={{ marginTop: '0.3rem' }}>
-                    다음 달을 생성하면 기존 목표 비율이 그대로 복제되므로, <strong>지출을 줄여 실적을 할당금 안으로 맞추는 훈련</strong>을 하거나 목표 배당률을 <strong>매 분기 1~3%씩 완만하게 조정</strong>하여 현실적인 균형을 찾아갑니다.
-                  </p>
-                </div>
-              </div>
-
-              <div className="pf-qa-item">
-                <h4 className="pf-qa-q">Q3. 세금 퍼센트는 어떻게 구하나요? (원칙과 계산법)</h4>
-                <div className="pf-qa-a">
-                  <p>
-                    <strong>원칙:</strong> 세금은 사업주의 돈이 아니므로 종합소득세·부가세·법인세 납부 시점에 자금난을 겪지 않도록 매 입금마다 떼어놓는 원칙입니다.
-                  </p>
-                  <p style={{ marginTop: '0.3rem' }}>
-                    <strong>권장 배분율:</strong>
-                  </p>
                   <ul style={{ margin: '0.2rem 0 0', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
-                    <li><strong>개인사업자:</strong> 실효세율 기준으로 약 <strong>15% ~ 25%</strong></li>
+                    <li><strong>개인사업자:</strong> 실효세율 기준 약 <strong>15% ~ 25%</strong></li>
                     <li><strong>법인사업자:</strong> 법인세율 기준 약 <strong>10% ~ 20%</strong></li>
-                    <li><strong>처음 시작할 때:</strong> 우선 <strong>15%</strong>로 시작한 뒤 세무사에게 작년 실효세율을 확인해 맞춤 조정하는 것을 권장합니다.</li>
+                    <li><strong>단계별 조정:</strong> 1달 → 1분기 → 반기 → 3분기 → 1년 단위로 수익 비율은 1~3%씩 높이고 운영비용(OpEx)은 줄여나가는 것이 핵심입니다.</li>
                   </ul>
-                </div>
-              </div>
-
-              <div className="pf-qa-item">
-                <h4 className="pf-qa-q">Q4. 계좌를 더 추가해도 되나요?</h4>
-                <div className="pf-qa-a">
-                  <p>
-                    <strong>네, 사업 특성에 맞게 언제든 추가할 수 있습니다.</strong>
-                  </p>
-                  <p style={{ marginTop: '0.3rem' }}>
-                    아래의 <strong>[+ 계좌 추가]</strong> 버튼을 눌러 한국 사업장 환경에 꼭 필요한 계좌들을 만들어보세요:
-                  </p>
-                  <ul style={{ margin: '0.2rem 0 0', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
-                    <li><strong>직원 퇴직금 적립:</strong> 매월 직원 급여의 약 8.3%~9% 적립하여 퇴사 시 목돈 충격 방지</li>
-                    <li><strong>직원/선생님 인센티브:</strong> 분기별 성과 보너스 배분 전용 계좌</li>
-                    <li><strong>설비/비품 투자 적립, 대출 원리금 상환 계좌</strong> 등</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="pf-qa-item">
-                <h4 className="pf-qa-q">Q5. 수익먼저 시스템을 도입했을 때의 장점은?</h4>
-                <div className="pf-qa-a">
-                  <ol style={{ margin: '0.2rem 0 0', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
-                    <li><strong>수익이 0원이 되는 일을 원천 차단:</strong> 수익을 가장 먼저 떼어놓으므로 회사가 성장할수록 사업주 수익도 확실히 보장됩니다.</li>
-                    <li><strong>파킨슨의 법칙을 역이용한 지출 절감:</strong> 운영비 통장에 남은 금액 한도 내에서만 지출하게 되므로 불필요한 군더더기 비용이 사라집니다.</li>
-                    <li><strong>세금·퇴직금 폭탄 예방:</strong> 낼 돈이 미리 모여 있어 현금 유동성 위기가 오지 않습니다.</li>
-                    <li><strong>사업주의 심리적 성취감:</strong> 분기마다 모인 수익 계좌의 50%를 소유주 보너스로 온전히 인출하며 사업 동기부여가 극대화됩니다.</li>
-                  </ol>
                 </div>
               </div>
             </div>
@@ -2697,174 +2937,853 @@ function ProfitFirstView({ months, onUpdate }: { months: ProfitFirstMonth[]; onU
         </div>
       </section>
 
-      {months.length === 0 && (
-        <section className="card" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#8e8e93' }}>
-          <TrendingUp style={{ width: '2.5rem', height: '2.5rem', margin: '0 auto 1rem', opacity: 0.4 }} />
-          <p>아직 생성된 달이 없습니다.</p>
-          <p style={{ fontSize: '0.82rem' }}>위의 &quot;이번 달 생성&quot; 버튼을 눌러 시작하세요.</p>
-        </section>
-      )}
+      {/* =====================================================================
+          TAB 1: 현재 상황 (1번 현재상황 표 + 2번 하단 목표할당률 드롭다운 표 + 3번 자동연동)
+         ===================================================================== */}
+      {subTab === 'current' && (
+        <>
+          {months.length === 0 && (
+            <section className="card" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#8e8e93', marginBottom: '1.2rem' }}>
+              <TrendingUp style={{ width: '2.5rem', height: '2.5rem', margin: '0 auto 1rem', opacity: 0.4 }} />
+              <p>아직 생성된 달이 없습니다.</p>
+              <p style={{ fontSize: '0.82rem' }}>위의 &quot;이번 달 생성&quot; 버튼을 눌러 현재 재무상황 표를 시작하세요.</p>
+            </section>
+          )}
 
-      {months.map(pfMonth => {
-        const totalActual = pfMonth.accounts.reduce((s, a) => s + (Number(a.actualAmount) || 0), 0)
-        const totalTargetPercent = pfMonth.accounts.reduce((s, a) => s + (Number(a.targetPercent) || 0), 0)
-        const totalAllocated = pfMonth.accounts.reduce((s, a) => s + (pfMonth.income * (Number(a.targetPercent) || 0) / 100), 0)
-        const totalDelta = totalAllocated - totalActual
+          {/* 1 & 3. 현재 상황 표 (통합 표) */}
+          {months.map(pfMonth => {
+            const monthOrder = sortedMonthsAsc.findIndex(m => m.month === pfMonth.month) + 1
+            const autoPeriod = getAutoPeriodByOrder(monthOrder)
+            const activePeriod: ProfitFirstPeriod = pfMonth.periodOverride || autoPeriod
 
-        return (
-          <section key={pfMonth.month} className="card pf-month-card">
-            <h3 className="pf-month-title">{ymLabel(pfMonth.month)}</h3>
+            const totalActual = pfMonth.accounts.reduce((s, a) => s + (Number(a.actualAmount) || 0), 0)
+            const baseIncome = pfMonth.income > 0 ? pfMonth.income : totalActual
+            const totalCurrentPercent = baseIncome > 0 ? (totalActual / baseIncome) * 100 : 0
 
-            <div className="pf-table-wrapper">
-              <table className="pf-table">
-                <colgroup>
-                  <col style={{ width: '22%' }} />
-                  <col style={{ width: '16%' }} />
-                  <col style={{ width: '13%' }} />
-                  <col style={{ width: '15%' }} />
-                  <col style={{ width: '13%' }} />
-                  <col style={{ width: '17%' }} />
-                  <col style={{ width: '40px' }} />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th className="pf-col-left">항목</th>
-                    <th className="pf-col-center">실적</th>
-                    <th className="pf-col-center">목표 배당률</th>
-                    <th className="pf-col-center">할당금</th>
-                    <th className="pf-col-center">델타</th>
-                    <th className="pf-col-center">개선 방향</th>
-                    <th className="pf-col-center"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* 수입 행 */}
-                  <tr className="pf-income-row">
-                    <td className="pf-label"><strong>수입 (Income)</strong></td>
-                    <td className="pf-col-center">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        className="pf-input pf-text-center"
-                        value={pfMonth.income ? pfMonth.income.toLocaleString('ko-KR') : ''}
-                        placeholder="0"
+            const totalTargetPercent = pfMonth.accounts.reduce(
+              (s, a) => s + getTargetRate(activePeriod, a.name, Number(a.targetPercent) || 0),
+              0
+            )
+            const totalAllocated = pfMonth.accounts.reduce(
+              (s, a) => s + (baseIncome * getTargetRate(activePeriod, a.name, Number(a.targetPercent) || 0) / 100),
+              0
+            )
+            const totalDelta = totalAllocated - totalActual
+
+            return (
+              <section key={pfMonth.month} className="card pf-month-card">
+                <div className="pf-month-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                    <span className="pf-status-badge">현재 상황</span>
+                    <h3 className="pf-month-title" style={{ margin: 0, border: 'none', padding: 0 }}>
+                      {ymLabel(pfMonth.month)}
+                    </h3>
+                    <span className="pf-order-badge">
+                      누적 {monthOrder}개월 차 · <strong>{getPeriodLabel(activePeriod)} 목표</strong> 자동배정
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <label className="pf-period-select-label">
+                      <span>적용 목표기준:</span>
+                      <select
+                        className="pf-period-select"
+                        value={pfMonth.periodOverride || 'auto'}
                         onChange={e => {
-                          const v = parseMoney(e.target.value)
-                          updateMonth(pfMonth.month, m => ({ ...m, income: v }))
+                          const val = e.target.value
+                          updateMonth(pfMonth.month, m => ({
+                            ...m,
+                            periodOverride: val === 'auto' ? undefined : (val as ProfitFirstPeriod)
+                          }))
                         }}
-                      />
-                    </td>
-                    <td className="pf-muted pf-col-center">—</td>
-                    <td className="pf-muted pf-col-center">—</td>
-                    <td className="pf-muted pf-col-center">—</td>
-                    <td className="pf-muted pf-col-center">—</td>
-                    <td className="pf-col-center"></td>
-                  </tr>
+                      >
+                        <option value="auto">자동 ({monthOrder}개월차 → {getPeriodLabel(autoPeriod)})</option>
+                        {PROFIT_FIRST_PERIODS.map(p => (
+                          <option key={p.id} value={p.id}>{p.label} 목표 할당률 적용</option>
+                        ))}
+                      </select>
+                    </label>
+                    {months.length > 1 && (
+                      <button
+                        type="button"
+                        className="pf-delete-btn"
+                        title="이 달 삭제"
+                        onClick={() => {
+                          if (confirm(`${ymLabel(pfMonth.month)} 데이터를 삭제하시겠습니까?`)) {
+                            deleteMonth(pfMonth.month)
+                          }
+                        }}
+                      >
+                        <Trash2 style={{ width: '0.95rem', height: '0.95rem' }} />
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-                  {/* 각 계좌 행 */}
-                  {pfMonth.accounts.map(acc => {
-                    const allocated = pfMonth.income * (Number(acc.targetPercent) || 0) / 100
-                    const delta = allocated - (Number(acc.actualAmount) || 0)
-                    const isCustom = !defaultNames.includes(acc.name)
-
-                    return (
-                      <tr key={acc.id}>
-                        <td className="pf-label">
-                          {isCustom ? (
-                            <input
-                              type="text"
-                              className="pf-input pf-name-input"
-                              value={acc.name}
-                              placeholder="계좌명 입력"
-                              onChange={e => updateAccount(pfMonth.month, acc.id, 'name', e.target.value)}
-                            />
-                          ) : (
-                            acc.name
-                          )}
-                        </td>
+                <div className="pf-table-wrapper">
+                  <table className="pf-table">
+                    <colgroup>
+                      <col style={{ width: '19%' }} />
+                      <col style={{ width: '15%' }} />
+                      <col style={{ width: '12%' }} />
+                      <col style={{ width: '12%' }} />
+                      <col style={{ width: '15%' }} />
+                      <col style={{ width: '13%' }} />
+                      <col style={{ width: '14%' }} />
+                      <col style={{ width: '36px' }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th className="pf-col-left">항목</th>
+                        <th className="pf-col-center">현재 금액 (실적)</th>
+                        <th className="pf-col-center">현재 할당률</th>
+                        <th className="pf-col-center">목표 할당률 ({getPeriodLabel(activePeriod)})</th>
+                        <th className="pf-col-center">목표 금액 (할당금)</th>
+                        <th className="pf-col-center">델타 (차이)</th>
+                        <th className="pf-col-center">개선 방향</th>
+                        <th className="pf-col-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* 수입 행 */}
+                      <tr className="pf-income-row">
+                        <td className="pf-label"><strong>수입 (Income)</strong></td>
                         <td className="pf-col-center">
                           <input
                             type="text"
                             inputMode="numeric"
                             className="pf-input pf-text-center"
-                            value={acc.actualAmount ? acc.actualAmount.toLocaleString('ko-KR') : ''}
-                            placeholder="0"
-                            onChange={e => updateAccount(pfMonth.month, acc.id, 'actualAmount', parseMoney(e.target.value))}
+                            value={pfMonth.income ? pfMonth.income.toLocaleString('ko-KR') : ''}
+                            placeholder="금액 입력"
+                            onChange={e => {
+                              const v = parseMoney(e.target.value)
+                              updateMonth(pfMonth.month, m => ({ ...m, income: v }))
+                            }}
                           />
                         </td>
+                        <td className="pf-computed pf-col-center">
+                          <strong>{baseIncome > 0 ? '100%' : '—'}</strong>
+                        </td>
+                        <td className="pf-muted pf-col-center">100%</td>
+                        <td className="pf-computed pf-col-center">
+                          {baseIncome > 0 ? money(baseIncome) : '—'}
+                        </td>
+                        <td className="pf-muted pf-col-center">—</td>
+                        <td className="pf-muted pf-col-center">—</td>
+                        <td className="pf-col-center"></td>
+                      </tr>
+
+                      {/* 각 계좌 행 */}
+                      {pfMonth.accounts.map(acc => {
+                        const actual = Number(acc.actualAmount) || 0
+                        const currentRate = baseIncome > 0 ? (actual / baseIncome) * 100 : 0
+                        const targetRate = getTargetRate(activePeriod, acc.name, Number(acc.targetPercent) || 0)
+                        const allocated = baseIncome * (targetRate / 100)
+                        const delta = allocated - actual
+                        const isCustom = !defaultNames.includes(acc.name)
+
+                        return (
+                          <tr key={acc.id}>
+                            <td className="pf-label">
+                              {isCustom ? (
+                                <input
+                                  type="text"
+                                  className="pf-input pf-name-input"
+                                  value={acc.name}
+                                  placeholder="계좌명 입력"
+                                  onChange={e => updateAccount(pfMonth.month, acc.id, 'name', e.target.value)}
+                                />
+                              ) : (
+                                acc.name
+                              )}
+                            </td>
+                            <td className="pf-col-center">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                className="pf-input pf-text-center"
+                                value={acc.actualAmount ? acc.actualAmount.toLocaleString('ko-KR') : ''}
+                                placeholder="0"
+                                onChange={e => updateAccount(pfMonth.month, acc.id, 'actualAmount', parseMoney(e.target.value))}
+                              />
+                            </td>
+                            {/* 1번: 금액을 넣으면 현재 할당률로 자동 표시 */}
+                            <td className="pf-computed pf-col-center pf-current-rate-cell">
+                              <strong>{baseIncome > 0 ? formatRate(currentRate) : '0%'}</strong>
+                            </td>
+                            {/* 3번: 2번 목표할당률 표에서 자동으로 배정되어 표시 */}
+                            <td className="pf-computed pf-col-center pf-target-rate-cell">
+                              <span className="pf-auto-target-pill">{targetRate}%</span>
+                            </td>
+                            {/* 목표 금액 자동 책정 */}
+                            <td className="pf-computed pf-col-center">
+                              <strong>{baseIncome > 0 ? money(Math.round(allocated)) : '—'}</strong>
+                            </td>
+                            <td className={`pf-computed pf-col-center ${delta > 0 ? 'pf-delta-positive' : delta < 0 ? 'pf-delta-negative' : ''}`}>
+                              {baseIncome > 0 && (actual > 0 || allocated > 0)
+                                ? `${delta >= 0 ? '+' : ''}${money(Math.round(delta))}`
+                                : '—'}
+                            </td>
+                            <td className="pf-col-center">
+                              <input
+                                type="text"
+                                className="pf-input pf-improve-input"
+                                value={acc.improvement}
+                                placeholder="메모"
+                                onChange={e => updateAccount(pfMonth.month, acc.id, 'improvement', e.target.value)}
+                              />
+                            </td>
+                            <td className="pf-col-center">
+                              {isCustom && (
+                                <button
+                                  className="pf-delete-btn"
+                                  title="계좌 삭제"
+                                  onClick={() => {
+                                    if (confirm(`'${acc.name}' 계좌를 삭제하시겠습니까?`)) {
+                                      removeAccount(pfMonth.month, acc.id)
+                                    }
+                                  }}
+                                >
+                                  <Trash2 style={{ width: '0.9rem', height: '0.9rem' }} />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+
+                      {/* 합계 행 */}
+                      <tr className="pf-total-row">
+                        <td className="pf-label"><strong>합계</strong></td>
+                        <td className="pf-computed pf-col-center"><strong>{money(totalActual)}</strong></td>
+                        <td className="pf-computed pf-col-center">
+                          <strong>{baseIncome > 0 ? formatRate(totalCurrentPercent) : '0%'}</strong>
+                        </td>
+                        <td className={`pf-computed pf-total-percent pf-col-center ${totalTargetPercent > 100 ? 'pf-over' : totalTargetPercent === 100 ? 'pf-exact' : ''}`}>
+                          <strong>{totalTargetPercent}%</strong>
+                        </td>
+                        <td className="pf-computed pf-col-center">
+                          <strong>{baseIncome > 0 ? money(Math.round(totalAllocated)) : '—'}</strong>
+                        </td>
+                        <td className={`pf-computed pf-col-center ${totalDelta > 0 ? 'pf-delta-positive' : totalDelta < 0 ? 'pf-delta-negative' : ''}`}>
+                          <strong>
+                            {baseIncome > 0 && (totalActual > 0 || totalAllocated > 0)
+                              ? `${totalDelta >= 0 ? '+' : ''}${money(Math.round(totalDelta))}`
+                              : '—'}
+                          </strong>
+                        </td>
+                        <td className="pf-muted pf-col-center">—</td>
+                        <td className="pf-col-center"></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <button
+                  className="pf-add-account-btn"
+                  onClick={() => addAccount(pfMonth.month)}
+                >
+                  <Plus style={{ width: '0.9rem', height: '0.9rem' }} /> 계좌 추가
+                </button>
+              </section>
+            )
+          })}
+
+          {/* 2. 하단 "목표 할당률" 메뉴 (기간 선택 드롭다운 + 입력 표) */}
+          <section className="card pf-target-card">
+            <div className="pf-month-header">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                  <span className="pf-status-badge pf-badge-target">목표 할당률</span>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>
+                    기간별 목표 할당률 설정 (드롭다운 선택)
+                  </h3>
+                </div>
+                <p className="muted" style={{ marginTop: '0.35rem', fontSize: '0.8rem' }}>
+                  드롭다운에서 기간(1달 · 1분기 · 반기 · 3분기 · 1년)을 선택해 목표 할당률(%)을 입력하면 위의 <strong>「현재 상황」</strong> 표에 자동으로 반영됩니다.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                <label className="pf-period-select-label">
+                  <span>목표 기간 선택:</span>
+                  <select
+                    className="pf-period-select pf-period-select-large"
+                    value={selectedTargetPeriod}
+                    onChange={e => setSelectedTargetPeriod(e.target.value as ProfitFirstPeriod)}
+                  >
+                    {PROFIT_FIRST_PERIODS.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.label} 목표 할당률 ({p.monthRangeLabel})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="small-btn"
+                  onClick={() => onChangeSubTab('targets')}
+                >
+                  전 기간(1달~1년) 한눈에 입력 →
+                </button>
+              </div>
+            </div>
+
+            <div className="pf-table-wrapper">
+              <table className="pf-table">
+                <colgroup>
+                  <col style={{ width: '32%' }} />
+                  <col style={{ width: '24%' }} />
+                  <col style={{ width: '24%' }} />
+                  <col style={{ width: '20%' }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th className="pf-col-left">계좌 항목</th>
+                    <th className="pf-col-center">{getPeriodLabel(selectedTargetPeriod)} 목표 할당률 (%)</th>
+                    <th className="pf-col-center">자동 책정 목표 금액 (현재 수입 기준)</th>
+                    <th className="pf-col-center">적용 구간</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allAccountNames.map(accName => {
+                    const rate = getTargetRate(selectedTargetPeriod, accName, 0)
+                    const previewAmt = Math.round(latestIncomePreview * (rate / 100))
+                    const periodMeta = PROFIT_FIRST_PERIODS.find(p => p.id === selectedTargetPeriod)
+                    return (
+                      <tr key={accName}>
+                        <td className="pf-label">{accName}</td>
                         <td className="pf-col-center">
                           <div className="pf-percent-wrap">
                             <input
                               type="number"
                               className="pf-input pf-percent-input"
-                              value={acc.targetPercent || ''}
+                              value={rate === 0 ? '' : rate}
                               placeholder="0"
                               min={0}
                               max={100}
-                              onChange={e => updateAccount(pfMonth.month, acc.id, 'targetPercent', Number(e.target.value) || 0)}
+                              step="0.5"
+                              onChange={e => updateTargetRate(selectedTargetPeriod, accName, Number(e.target.value) || 0)}
                             />
                             <span className="pf-percent-sign">%</span>
                           </div>
                         </td>
-                        <td className="pf-computed pf-col-center">{pfMonth.income > 0 ? money(allocated) : '—'}</td>
-                        <td className={`pf-computed pf-col-center ${delta > 0 ? 'pf-delta-positive' : delta < 0 ? 'pf-delta-negative' : ''}`}>
-                          {pfMonth.income > 0 && acc.actualAmount > 0 ? (delta >= 0 ? '+' : '') + money(delta) : '—'}
+                        <td className="pf-computed pf-col-center">
+                          <strong>{money(previewAmt)}</strong>
                         </td>
-                        <td className="pf-col-center">
-                          <input
-                            type="text"
-                            className="pf-input pf-improve-input"
-                            value={acc.improvement}
-                            placeholder="메모"
-                            onChange={e => updateAccount(pfMonth.month, acc.id, 'improvement', e.target.value)}
-                          />
-                        </td>
-                        <td className="pf-col-center">
-                          {isCustom && (
-                            <button
-                              className="pf-delete-btn"
-                              title="계좌 삭제"
-                              onClick={() => {
-                                if (confirm(`'${acc.name}' 계좌를 삭제하시겠습니까?`)) {
-                                  removeAccount(pfMonth.month, acc.id)
-                                }
-                              }}
-                            >
-                              <Trash2 style={{ width: '0.9rem', height: '0.9rem' }} />
-                            </button>
-                          )}
+                        <td className="pf-muted pf-col-center">
+                          {periodMeta?.monthRangeLabel}
                         </td>
                       </tr>
                     )
                   })}
+                  {(() => {
+                    const sumRate = allAccountNames.reduce((s, name) => s + getTargetRate(selectedTargetPeriod, name, 0), 0)
+                    const sumAmt = Math.round(latestIncomePreview * (sumRate / 100))
+                    return (
+                      <tr className="pf-total-row">
+                        <td className="pf-label"><strong>합계</strong></td>
+                        <td className={`pf-computed pf-total-percent pf-col-center ${sumRate > 100 ? 'pf-over' : sumRate === 100 ? 'pf-exact' : ''}`}>
+                          <strong>{sumRate}%</strong>
+                          {sumRate !== 100 && (
+                            <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 500 }}>
+                              (100%까지 {100 - sumRate > 0 ? `+${100 - sumRate}%` : `${100 - sumRate}%`})
+                            </span>
+                          )}
+                        </td>
+                        <td className="pf-computed pf-col-center">
+                          <strong>{money(sumAmt)}</strong>
+                        </td>
+                        <td className="pf-muted pf-col-center">자동 연동됨</td>
+                      </tr>
+                    )
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
 
-                  {/* 합계 행 */}
+      {/* =====================================================================
+          TAB 2: 목표 할당률 설정 전용 페이지 (드롭다운 + 1달/1분기/반기/3분기/1년 전체 입력 표)
+         ===================================================================== */}
+      {subTab === 'targets' && (
+        <>
+          <section className="card pf-target-card" style={{ marginBottom: '1.2rem' }}>
+            <div className="pf-month-header">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span className="pf-status-badge pf-badge-target">기간 선택 입력</span>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>
+                    드롭다운으로 기간별 목표 할당률 설정
+                  </h3>
+                </div>
+                <p className="muted" style={{ marginTop: '0.35rem', fontSize: '0.8rem' }}>
+                  기간(1달 · 1분기 · 반기 · 3분기 · 1년)을 선택하여 목표 할당률(%)을 설정하세요. 설정한 비율은 <strong>현재 상황</strong> 및 <strong>누적관리</strong> 표에 자동 배정됩니다.
+                </p>
+              </div>
+
+              <label className="pf-period-select-label">
+                <span>기간 선택:</span>
+                <select
+                  className="pf-period-select pf-period-select-large"
+                  value={selectedTargetPeriod}
+                  onChange={e => setSelectedTargetPeriod(e.target.value as ProfitFirstPeriod)}
+                >
+                  {PROFIT_FIRST_PERIODS.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.label} 목표 ({p.monthRangeLabel})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="pf-table-wrapper">
+              <table className="pf-table">
+                <colgroup>
+                  <col style={{ width: '32%' }} />
+                  <col style={{ width: '24%' }} />
+                  <col style={{ width: '24%' }} />
+                  <col style={{ width: '20%' }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th className="pf-col-left">계좌 항목</th>
+                    <th className="pf-col-center">{getPeriodLabel(selectedTargetPeriod)} 목표 할당률 (%)</th>
+                    <th className="pf-col-center">예상 목표 금액 (기준 수입 {money(latestIncomePreview)})</th>
+                    <th className="pf-col-center">자동 배정 시점 (방식 B)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allAccountNames.map(accName => {
+                    const rate = getTargetRate(selectedTargetPeriod, accName, 0)
+                    const previewAmt = Math.round(latestIncomePreview * (rate / 100))
+                    const periodMeta = PROFIT_FIRST_PERIODS.find(p => p.id === selectedTargetPeriod)
+                    return (
+                      <tr key={accName}>
+                        <td className="pf-label">{accName}</td>
+                        <td className="pf-col-center">
+                          <div className="pf-percent-wrap">
+                            <input
+                              type="number"
+                              className="pf-input pf-percent-input"
+                              value={rate === 0 ? '' : rate}
+                              placeholder="0"
+                              min={0}
+                              max={100}
+                              step="0.5"
+                              onChange={e => updateTargetRate(selectedTargetPeriod, accName, Number(e.target.value) || 0)}
+                            />
+                            <span className="pf-percent-sign">%</span>
+                          </div>
+                        </td>
+                        <td className="pf-computed pf-col-center">
+                          <strong>{money(previewAmt)}</strong>
+                        </td>
+                        <td className="pf-muted pf-col-center">{periodMeta?.monthRangeLabel}</td>
+                      </tr>
+                    )
+                  })}
+                  {(() => {
+                    const sumRate = allAccountNames.reduce((s, name) => s + getTargetRate(selectedTargetPeriod, name, 0), 0)
+                    return (
+                      <tr className="pf-total-row">
+                        <td className="pf-label"><strong>합계</strong></td>
+                        <td className={`pf-computed pf-total-percent pf-col-center ${sumRate > 100 ? 'pf-over' : sumRate === 100 ? 'pf-exact' : ''}`}>
+                          <strong>{sumRate}%</strong>
+                        </td>
+                        <td className="pf-computed pf-col-center">
+                          <strong>{money(Math.round(latestIncomePreview * (sumRate / 100)))}</strong>
+                        </td>
+                        <td className="pf-muted pf-col-center">100% 권장</td>
+                      </tr>
+                    )
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* 전체 기간 (1달 / 1분기 / 반기 / 3분기 / 1년) 한눈에 비교 & 입력 표 */}
+          <section className="card">
+            <div className="pf-month-header">
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>
+                  전 기간 목표 할당률 로드맵 (1달 → 1분기 → 반기 → 3분기 → 1년)
+                </h3>
+                <p className="muted" style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}>
+                  1달부터 1년까지 각 기간별 목표 할당률(%)을 한눈에 비교하고 직접 수정할 수 있습니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="small-btn"
+                onClick={() => onChangeSubTab('current')}
+              >
+                현재 상황 표에서 확인하기 →
+              </button>
+            </div>
+
+            <div className="pf-table-wrapper">
+              <table className="pf-table">
+                <colgroup>
+                  <col style={{ width: '25%' }} />
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '15%' }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th className="pf-col-left">항목 (계좌)</th>
+                    {PROFIT_FIRST_PERIODS.map(p => (
+                      <th key={p.id} className="pf-col-center">
+                        {p.label} 목표
+                        <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: 400, opacity: 0.8 }}>
+                          ({p.maxMonths}개월)
+                        </span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {allAccountNames.map(accName => (
+                    <tr key={accName}>
+                      <td className="pf-label">{accName}</td>
+                      {PROFIT_FIRST_PERIODS.map(p => {
+                        const val = getTargetRate(p.id, accName, 0)
+                        return (
+                          <td key={p.id} className="pf-col-center">
+                            <div className="pf-percent-wrap">
+                              <input
+                                type="number"
+                                className="pf-input pf-percent-input"
+                                value={val === 0 ? '' : val}
+                                placeholder="0"
+                                min={0}
+                                max={100}
+                                step="0.5"
+                                onChange={e => updateTargetRate(p.id, accName, Number(e.target.value) || 0)}
+                              />
+                              <span className="pf-percent-sign">%</span>
+                            </div>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
                   <tr className="pf-total-row">
                     <td className="pf-label"><strong>합계</strong></td>
-                    <td className="pf-computed pf-col-center"><strong>{money(totalActual)}</strong></td>
-                    <td className={`pf-computed pf-total-percent pf-col-center ${totalTargetPercent > 100 ? 'pf-over' : totalTargetPercent === 100 ? 'pf-exact' : ''}`}>
-                      <strong>{totalTargetPercent}%</strong>
-                    </td>
-                    <td className="pf-computed pf-col-center"><strong>{pfMonth.income > 0 ? money(totalAllocated) : '—'}</strong></td>
-                    <td className={`pf-computed pf-col-center ${totalDelta > 0 ? 'pf-delta-positive' : totalDelta < 0 ? 'pf-delta-negative' : ''}`}>
-                      <strong>{pfMonth.income > 0 && totalActual > 0 ? (totalDelta >= 0 ? '+' : '') + money(totalDelta) : '—'}</strong>
-                    </td>
-                    <td className="pf-muted pf-col-center">—</td>
-                    <td className="pf-col-center"></td>
+                    {PROFIT_FIRST_PERIODS.map(p => {
+                      const sum = allAccountNames.reduce((s, name) => s + getTargetRate(p.id, name, 0), 0)
+                      return (
+                        <td
+                          key={p.id}
+                          className={`pf-computed pf-total-percent pf-col-center ${sum > 100 ? 'pf-over' : sum === 100 ? 'pf-exact' : ''}`}
+                        >
+                          <strong>{sum}%</strong>
+                        </td>
+                      )
+                    })}
                   </tr>
                 </tbody>
               </table>
             </div>
-
-            <button
-              className="pf-add-account-btn"
-              onClick={() => addAccount(pfMonth.month)}
-            >
-              <Plus style={{ width: '0.9rem', height: '0.9rem' }} /> 계좌 추가
-            </button>
           </section>
-        )
-      })}
+        </>
+      )}
+
+      {/* =====================================================================
+          TAB 3: 누적관리 서브 메뉴 (1달 · 1분기 · 반기 · 3분기 · 1년 누적 조정 현황)
+         ===================================================================== */}
+      {subTab === 'cumulative' && (
+        <>
+          {/* 1. 한달 · 1분기 · 반기 · 3분기 · 1년 누적 할당률 조정 현황 비교표 */}
+          <section className="card" style={{ marginBottom: '1.2rem' }}>
+            <div className="pf-month-header">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                  <span className="pf-status-badge">누적관리 총괄</span>
+                  <h3 style={{ margin: 0, fontSize: '1.08rem', fontWeight: 700 }}>
+                    기간별 누적 할당률 조정 현황 (1달 · 1분기 · 반기 · 3분기 · 1년)
+                  </h3>
+                </div>
+                <p className="muted" style={{ marginTop: '0.35rem', fontSize: '0.82rem' }}>
+                  1달부터 1년까지 누적 실제 할당률(%)과 목표 할당률(%)이 어떻게 조정되고 달성되고 있는지 한눈에 확인합니다.
+                  (현재 등록된 월 데이터: <strong>총 {months.length}개월</strong>)
+                </p>
+              </div>
+            </div>
+
+            <div className="pf-table-wrapper">
+              <table className="pf-table">
+                <colgroup>
+                  <col style={{ width: '20%' }} />
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '16%' }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th className="pf-col-left">항목 (계좌)</th>
+                    {PROFIT_FIRST_PERIODS.map(p => {
+                      const stats = computeCumulativeStats(p.id)
+                      return (
+                        <th key={p.id} className="pf-col-center">
+                          {p.label} 누적
+                          <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: 400, opacity: 0.85 }}>
+                            (실제 {stats.monthCount}/{p.maxMonths}개월분)
+                          </span>
+                        </th>
+                      )
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* 누적 수입 행 */}
+                  <tr className="pf-income-row">
+                    <td className="pf-label"><strong>누적 수입</strong></td>
+                    {PROFIT_FIRST_PERIODS.map(p => {
+                      const stats = computeCumulativeStats(p.id)
+                      return (
+                        <td key={p.id} className="pf-computed pf-col-center">
+                          <strong>{stats.baseIncome > 0 ? money(stats.baseIncome) : '—'}</strong>
+                        </td>
+                      )
+                    })}
+                  </tr>
+
+                  {/* 각 계좌별 기간 누적 (현재 할당률 vs 목표 할당률 + 금액) */}
+                  {allAccountNames.map(accName => (
+                    <tr key={accName}>
+                      <td className="pf-label">{accName}</td>
+                      {PROFIT_FIRST_PERIODS.map(p => {
+                        const stats = computeCumulativeStats(p.id)
+                        const row = stats.rows.find(r => r.name === accName)
+                        const curRate = row?.currentRate || 0
+                        const tgtRate = row?.targetRate || 0
+                        const diffRate = curRate - tgtRate
+                        const hasData = stats.baseIncome > 0
+
+                        return (
+                          <td key={p.id} className="pf-col-center">
+                            <div className="pf-cum-cell">
+                              <div className="pf-cum-rates">
+                                <span className="pf-cum-cur" title="현재 누적 할당률">
+                                  현재 <strong>{hasData ? formatRate(curRate) : '0%'}</strong>
+                                </span>
+                                <span className="pf-cum-arrow">→</span>
+                                <span className="pf-cum-tgt" title="목표 할당률">
+                                  목표 <strong>{tgtRate}%</strong>
+                                </span>
+                              </div>
+                              <div className="pf-cum-bar-track">
+                                <div
+                                  className="pf-cum-bar-fill"
+                                  style={{
+                                    width: `${Math.min(100, tgtRate > 0 ? (curRate / tgtRate) * 100 : 0)}%`
+                                  }}
+                                />
+                              </div>
+                              <div className="pf-cum-amounts">
+                                <span>실적 {hasData ? money(row?.actual || 0) : '0원'}</span>
+                                <span className={diffRate >= 0 ? 'pf-delta-positive' : 'pf-delta-negative'}>
+                                  {hasData ? `(${diffRate >= 0 ? '+' : ''}${formatRate(diffRate)}p)` : `(목표 ${tgtRate}%)`}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* 2. 기간 선택 상세 누적표 (드롭다운 선택) */}
+          <section className="card" style={{ marginBottom: '1.2rem' }}>
+            {(() => {
+              const cumStats = computeCumulativeStats(selectedCumulativePeriod)
+              const periodLabel = selectedCumulativePeriod === 'all'
+                ? `전체 누적 (${cumStats.monthCount}개월)`
+                : `${getPeriodLabel(selectedCumulativePeriod)} 누적 (${cumStats.monthCount}/${cumStats.maxMonths}개월)`
+
+              return (
+                <>
+                  <div className="pf-month-header">
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        <span className="pf-status-badge pf-badge-target">상세 누적표</span>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>
+                          {periodLabel} 현재 상황 및 목표 대비표
+                        </h3>
+                      </div>
+                      <p className="muted" style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}>
+                        선택한 누적 기간의 총 실적 금액, 누적 현재 할당률(%), 목표 할당률(%), 자동 책정된 누적 목표 금액을 비교합니다.
+                      </p>
+                    </div>
+
+                    <label className="pf-period-select-label">
+                      <span>누적 기간 선택:</span>
+                      <select
+                        className="pf-period-select pf-period-select-large"
+                        value={selectedCumulativePeriod}
+                        onChange={e => setSelectedCumulativePeriod(e.target.value as ProfitFirstPeriod | 'all')}
+                      >
+                        {PROFIT_FIRST_PERIODS.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.label} 누적 보기 (1~{p.maxMonths}개월차)
+                          </option>
+                        ))}
+                        <option value="all">전체 기간 누적 보기</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="pf-table-wrapper">
+                    <table className="pf-table">
+                      <colgroup>
+                        <col style={{ width: '22%' }} />
+                        <col style={{ width: '17%' }} />
+                        <col style={{ width: '14%' }} />
+                        <col style={{ width: '14%' }} />
+                        <col style={{ width: '17%' }} />
+                        <col style={{ width: '16%' }} />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th className="pf-col-left">항목</th>
+                          <th className="pf-col-center">누적 현재 금액 (실적)</th>
+                          <th className="pf-col-center">누적 현재 할당률</th>
+                          <th className="pf-col-center">목표 할당률 ({getPeriodLabel(cumStats.effectiveTargetPeriod)})</th>
+                          <th className="pf-col-center">누적 목표 금액 (할당금)</th>
+                          <th className="pf-col-center">누적 델타 (차이)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="pf-income-row">
+                          <td className="pf-label"><strong>누적 수입 (Income)</strong></td>
+                          <td className="pf-computed pf-col-center"><strong>{money(cumStats.baseIncome)}</strong></td>
+                          <td className="pf-computed pf-col-center"><strong>{cumStats.baseIncome > 0 ? '100%' : '0%'}</strong></td>
+                          <td className="pf-muted pf-col-center">100%</td>
+                          <td className="pf-computed pf-col-center"><strong>{money(cumStats.baseIncome)}</strong></td>
+                          <td className="pf-muted pf-col-center">—</td>
+                        </tr>
+
+                        {cumStats.rows.map(row => (
+                          <tr key={row.name}>
+                            <td className="pf-label">{row.name}</td>
+                            <td className="pf-computed pf-col-center">{money(row.actual)}</td>
+                            <td className="pf-computed pf-col-center pf-current-rate-cell">
+                              <strong>{formatRate(row.currentRate)}</strong>
+                            </td>
+                            <td className="pf-computed pf-col-center pf-target-rate-cell">
+                              <span className="pf-auto-target-pill">{row.targetRate}%</span>
+                            </td>
+                            <td className="pf-computed pf-col-center">
+                              <strong>{money(Math.round(row.targetAmount))}</strong>
+                            </td>
+                            <td className={`pf-computed pf-col-center ${row.deltaAmount > 0 ? 'pf-delta-positive' : row.deltaAmount < 0 ? 'pf-delta-negative' : ''}`}>
+                              {cumStats.baseIncome > 0
+                                ? `${row.deltaAmount >= 0 ? '+' : ''}${money(Math.round(row.deltaAmount))}`
+                                : '—'}
+                            </td>
+                          </tr>
+                        ))}
+
+                        <tr className="pf-total-row">
+                          <td className="pf-label"><strong>누적 합계</strong></td>
+                          <td className="pf-computed pf-col-center"><strong>{money(cumStats.totalActual)}</strong></td>
+                          <td className="pf-computed pf-col-center">
+                            <strong>{formatRate(cumStats.totalCurrentRate)}</strong>
+                          </td>
+                          <td className={`pf-computed pf-total-percent pf-col-center ${cumStats.totalTargetRate > 100 ? 'pf-over' : cumStats.totalTargetRate === 100 ? 'pf-exact' : ''}`}>
+                            <strong>{cumStats.totalTargetRate}%</strong>
+                          </td>
+                          <td className="pf-computed pf-col-center">
+                            <strong>{money(Math.round(cumStats.totalTargetAmount))}</strong>
+                          </td>
+                          <td className={`pf-computed pf-col-center ${cumStats.totalDeltaAmount > 0 ? 'pf-delta-positive' : cumStats.totalDeltaAmount < 0 ? 'pf-delta-negative' : ''}`}>
+                            <strong>
+                              {cumStats.baseIncome > 0
+                                ? `${cumStats.totalDeltaAmount >= 0 ? '+' : ''}${money(Math.round(cumStats.totalDeltaAmount))}`
+                                : '—'}
+                            </strong>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )
+            })()}
+          </section>
+
+          {/* 3. 월별 진행 히스토리 (1개월차 ~ N개월차 흐름) */}
+          {sortedMonthsAsc.length > 0 && (
+            <section className="card">
+              <h3 style={{ margin: '0 0 0.4rem', fontSize: '1.02rem', fontWeight: 700 }}>
+                월별 누적 흐름 (1개월 차 ~ {sortedMonthsAsc.length}개월 차)
+              </h3>
+              <p className="muted" style={{ marginBottom: '0.9rem', fontSize: '0.8rem' }}>
+                각 개월 차마다 적용된 목표 단계와 실제 달성 할당률(%)의 변화 추이입니다.
+              </p>
+              <div className="pf-table-wrapper">
+                <table className="pf-table">
+                  <thead>
+                    <tr>
+                      <th className="pf-col-left">개월 차 (월)</th>
+                      <th className="pf-col-center">적용 목표 구간</th>
+                      <th className="pf-col-center">월 수입</th>
+                      {allAccountNames.map(name => (
+                        <th key={name} className="pf-col-center">{name} (현재 / 목표)</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedMonthsAsc.map((m, idx) => {
+                      const order = idx + 1
+                      const period = m.periodOverride || getAutoPeriodByOrder(order)
+                      const mActual = m.accounts.reduce((s, a) => s + (Number(a.actualAmount) || 0), 0)
+                      const mBase = m.income > 0 ? m.income : mActual
+                      return (
+                        <tr key={m.month}>
+                          <td className="pf-label">
+                            <strong>{order}개월 차</strong> ({ymLabel(m.month)})
+                          </td>
+                          <td className="pf-col-center">
+                            <span className="pf-auto-target-pill">{getPeriodLabel(period)} 목표</span>
+                          </td>
+                          <td className="pf-computed pf-col-center">{money(mBase)}</td>
+                          {allAccountNames.map(name => {
+                            const acc = m.accounts.find(a => a.name === name)
+                            const act = Number(acc?.actualAmount) || 0
+                            const curR = mBase > 0 ? (act / mBase) * 100 : 0
+                            const tgtR = getTargetRate(period, name, Number(acc?.targetPercent) || 0)
+                            return (
+                              <td key={name} className="pf-computed pf-col-center">
+                                <strong>{formatRate(curR)}</strong>
+                                <span style={{ color: 'var(--muted)', fontSize: '0.78rem' }}> / {tgtR}%</span>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
+      )}
     </>
   )
 }

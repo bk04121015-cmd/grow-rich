@@ -1870,3 +1870,214 @@ tbody td b { color: var(--foreground); font-weight: 700; }
   }
 }
 
+/* Sidebar Sub-Navigation under 수익먼저 시스템 */
+.sidebar-nav-group {
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-nav-group > button {
+  width: 100%;
+}
+.sidebar-subnav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.15rem 0 0.35rem 1.35rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--line-strong);
+}
+.sidebar-subnav button {
+  padding: 0.45rem 0.65rem !important;
+  font-size: 0.82rem !important;
+  font-weight: 500 !important;
+  color: var(--muted) !important;
+  border-radius: 8px !important;
+  gap: 0.45rem !important;
+}
+.sidebar-subnav button:hover {
+  color: var(--foreground) !important;
+  background: rgba(0, 0, 0, 0.03) !important;
+}
+.sidebar-subnav button.sub-active {
+  color: var(--primary) !important;
+  background: var(--primary-light) !important;
+  font-weight: 700 !important;
+}
+.sub-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* Profit First Sub-Tabs & Headers */
+.pf-subtabs {
+  display: flex;
+  gap: 0.4rem;
+  background: #f2f2f7;
+  padding: 4px;
+  border-radius: 12px;
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+.pf-subtab-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 0.55rem 0.85rem;
+  border-radius: 9px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.pf-subtab-btn:hover {
+  color: var(--foreground);
+}
+.pf-subtab-btn.active {
+  background: #ffffff;
+  color: var(--primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+
+.pf-month-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--line-strong);
+}
+
+.pf-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: var(--primary);
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+.pf-badge-target {
+  background: #5856d6;
+}
+
+.pf-order-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.pf-period-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.pf-period-select {
+  border: 1.5px solid var(--line-strong);
+  border-radius: 9px;
+  padding: 0.38rem 0.65rem;
+  background: #ffffff;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+.pf-period-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12);
+}
+.pf-period-select-large {
+  padding: 0.48rem 0.85rem;
+  font-size: 0.86rem;
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(0, 113, 227, 0.04);
+}
+
+.pf-current-rate-cell strong {
+  color: var(--primary);
+  font-size: 0.9rem;
+}
+
+.pf-auto-target-pill {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(88, 86, 214, 0.1);
+  color: #5856d6;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.pf-target-card {
+  border: 1.5px solid rgba(88, 86, 214, 0.22);
+}
+
+/* 누적관리 셀 스타일 */
+.pf-cum-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.15rem 0;
+}
+.pf-cum-rates {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.pf-cum-cur strong {
+  color: var(--primary);
+}
+.pf-cum-tgt strong {
+  color: #5856d6;
+}
+.pf-cum-arrow {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.pf-cum-bar-track {
+  height: 6px;
+  background: #e5e5ea;
+  border-radius: 999px;
+  overflow: hidden;
+  width: 100%;
+}
+.pf-cum-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), #5856d6);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+.pf-cum-amounts {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+

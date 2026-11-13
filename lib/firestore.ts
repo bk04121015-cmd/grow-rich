@@ -23,6 +23,18 @@ export type Account = {
   items: AccountItem[]
 }
 
+export type ProfitFirstPeriod = '1m' | 'q1' | 'h1' | 'q3' | 'y1'
+
+export const PROFIT_FIRST_PERIODS: { id: ProfitFirstPeriod; label: string; monthRangeLabel: string; maxMonths: number }[] = [
+  { id: '1m', label: '1달', monthRangeLabel: '1개월 차', maxMonths: 1 },
+  { id: 'q1', label: '1분기', monthRangeLabel: '2~3개월 차 (3개월 누적)', maxMonths: 3 },
+  { id: 'h1', label: '반기', monthRangeLabel: '4~6개월 차 (6개월 누적)', maxMonths: 6 },
+  { id: 'q3', label: '3분기', monthRangeLabel: '7~9개월 차 (9개월 누적)', maxMonths: 9 },
+  { id: 'y1', label: '1년', monthRangeLabel: '10~12개월 차 (12개월 누적)', maxMonths: 12 },
+]
+
+export type ProfitFirstTargetMap = Record<ProfitFirstPeriod, Record<string, number>>
+
 export type ProfitFirstAccount = {
   id: string
   name: string
@@ -35,6 +47,7 @@ export type ProfitFirstMonth = {
   month: string
   income: number
   accounts: ProfitFirstAccount[]
+  periodOverride?: ProfitFirstPeriod
 }
 
 export const defaultProfitFirstAccounts: Omit<ProfitFirstAccount, 'id'>[] = [
@@ -43,6 +56,39 @@ export const defaultProfitFirstAccounts: Omit<ProfitFirstAccount, 'id'>[] = [
   { name: '세금 (Tax)', targetPercent: 0, actualAmount: 0, improvement: '' },
   { name: '운영비용 (OpEx)', targetPercent: 0, actualAmount: 0, improvement: '' },
 ]
+
+export const defaultProfitFirstTargets: ProfitFirstTargetMap = {
+  '1m': {
+    '수익 (Profit)': 5,
+    '소유주 보상 (Owner\'s Comp)': 50,
+    '세금 (Tax)': 15,
+    '운영비용 (OpEx)': 30,
+  },
+  'q1': {
+    '수익 (Profit)': 8,
+    '소유주 보상 (Owner\'s Comp)': 50,
+    '세금 (Tax)': 15,
+    '운영비용 (OpEx)': 27,
+  },
+  'h1': {
+    '수익 (Profit)': 10,
+    '소유주 보상 (Owner\'s Comp)': 50,
+    '세금 (Tax)': 15,
+    '운영비용 (OpEx)': 25,
+  },
+  'q3': {
+    '수익 (Profit)': 12,
+    '소유주 보상 (Owner\'s Comp)': 50,
+    '세금 (Tax)': 15,
+    '운영비용 (OpEx)': 23,
+  },
+  'y1': {
+    '수익 (Profit)': 15,
+    '소유주 보상 (Owner\'s Comp)': 50,
+    '세금 (Tax)': 15,
+    '운영비용 (OpEx)': 20,
+  },
+}
 
 export type MonthlyData = {
   expectedIncome: number;
@@ -271,4 +317,25 @@ export async function saveProfitFirstToFirestore(phone: string, months: ProfitFi
   }
 }
 
+export async function loadProfitFirstTargetsFromFirestore(phone: string): Promise<ProfitFirstTargetMap | null> {
+  if (!db) return null
+  try {
+    const snap = await getDoc(doc(db, 'userProfitFirst', phone))
+    return snap.exists() ? ((snap.data() as { targets?: ProfitFirstTargetMap }).targets || null) : null
+  } catch (err) {
+    console.error('Failed to load Profit First targets from Firestore:', err)
+    return null
+  }
+}
+
+export async function saveProfitFirstTargetsToFirestore(phone: string, targets: ProfitFirstTargetMap) {
+  if (!db) return
+  try {
+    await setDoc(doc(db, 'userProfitFirst', phone), { targets }, { merge: true })
+  } catch (err) {
+    console.error('Failed to save Profit First targets to Firestore:', err)
+  }
+}
+
 export const noop = addDoc
+
